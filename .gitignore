@@ -1,0 +1,37 @@
+# Binaries (except dist/)
+/ralph
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries and coverage
+*.test
+*.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+
+# Project specific - these are user files, not part of the repo
+progress.md
+prompt.md
+
+# Test directories
+/testproject/
+/cmd/testparser/
+
+# Claude Code local settings
+.claude/settings.local.json
