@@ -23,7 +23,7 @@ func main() {
 		printHelp()
 		os.Exit(0)
 	case "--version", "-v":
-		fmt.Println("ralph-go v0.1.0")
+		fmt.Println("ralph-go v0.2.0")
 		os.Exit(0)
 	case "init":
 		runInit()
@@ -102,10 +102,13 @@ TUI Controls:
   j/k or ↑/↓    Navigate features
   Enter         Inspect running instance output
   s             Start selected feature
+  S             Start ALL (auto mode)
   r             Retry failed/completed feature
+  R             Reset feature (clear attempts)
   x             Stop running feature
+  X             Stop ALL (exit auto mode)
   ?             Show help
-  q             Quit (stops all instances)
+  q             Quit (saves progress)
 
 For more information, see the README.md file.`)
 }

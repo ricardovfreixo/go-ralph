@@ -28,7 +28,7 @@ Inspired by [Anthropic's Ralph Loop](https://github.com/anthropics/claude-plugin
 
 ```bash
 # Download latest
-curl -L https://github.com/vx/ralph-go/raw/main/dist/v0.1.0/linux-amd64/ralph -o ralph
+curl -L https://github.com/ricardovfreixo/go-ralph/raw/main/dist/v0.2.0/linux-amd64/ralph -o ralph
 chmod +x ralph
 sudo mv ralph /usr/local/bin/  # or ~/.local/bin/
 ```
@@ -38,7 +38,7 @@ sudo mv ralph /usr/local/bin/  # or ~/.local/bin/
 Requires Go 1.25+
 
 ```bash
-git clone https://github.com/vx/ralph-go.git
+git clone https://github.com/ricardovfreixo/go-ralph.git
 cd ralph-go
 go build -o ralph ./cmd/ralph
 sudo mv ralph /usr/local/bin/  # or ~/.local/bin/
@@ -83,10 +83,13 @@ ralph PRD.md
 | `j/k` | Navigate features |
 | `Enter` | Inspect feature output |
 | `s` | Start feature |
+| `S` | Start ALL (auto mode) |
 | `r` | Retry failed feature |
+| `R` | Reset feature |
 | `x` | Stop feature |
+| `X` | Stop ALL |
 | `?` | Help |
-| `q` | Quit |
+| `q` | Quit (saves progress) |
 
 **Inspect view:**
 
@@ -134,10 +137,20 @@ Acceptance: What must be true when done
 | `input_design/` | Design assets |
 | `.claude/CLAUDE.md` | PRD authoring guide for Claude |
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [PRD Authoring Guide](docs/context.md) | How to write effective PRDs |
+| [Roadmap](docs/ROADMAP.md) | Planned features and releases |
+| [License](docs/LICENSE.md) | Source-available license terms |
+| [Acknowledgments](docs/ACKNOWLEDGMENTS.md) | Credits and dependencies |
+| [PRD Template](docs/examples/PRD.template.md) | Starting template for new projects |
+
 ## License
 
-Source-available. Free to use and modify. No obligation to accept contributions or provide support. See [LICENSE.md](LICENSE.md).
+Source-available. Free to use and modify. No obligation to accept contributions or provide support. See [docs/LICENSE.md](docs/LICENSE.md).
 
 ## Status
 
-Early stage. See [ROADMAP.md](ROADMAP.md) for planned features.
+Early stage. See [docs/ROADMAP.md](docs/ROADMAP.md) for planned features.

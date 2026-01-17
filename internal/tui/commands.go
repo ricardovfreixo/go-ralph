@@ -35,6 +35,10 @@ type instanceDoneMsg struct {
 	status    string
 }
 
+type tickMsg struct{}
+
+type statusClearMsg struct{}
+
 func loadPRD(path string) tea.Cmd {
 	return func() tea.Msg {
 		prd, err := parser.ParsePRD(path)
