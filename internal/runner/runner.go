@@ -63,9 +63,10 @@ type StreamMessage struct {
 	SessionID string          `json:"session_id,omitempty"`
 }
 
-// Nested message content structure
+// Nested message content structures - Claude Code uses varying formats
 type MessageContent struct {
-	Content []ContentBlock `json:"content"`
+	Content json.RawMessage `json:"content"`
+	Text    string          `json:"text,omitempty"`
 }
 
 type ContentBlock struct {
@@ -83,13 +84,32 @@ func extractTextContent(raw json.RawMessage) string {
 		return ""
 	}
 
-	var parts []string
-	for _, block := range mc.Content {
-		if block.Type == "text" && block.Text != "" {
-			parts = append(parts, block.Text)
+	// Try direct text field first
+	if mc.Text != "" {
+		return mc.Text
+	}
+
+	// Try content as string
+	var contentStr string
+	if err := json.Unmarshal(mc.Content, &contentStr); err == nil && contentStr != "" {
+		return contentStr
+	}
+
+	// Try content as array of blocks
+	var blocks []ContentBlock
+	if err := json.Unmarshal(mc.Content, &blocks); err == nil {
+		var parts []string
+		for _, block := range blocks {
+			if block.Type == "text" && block.Text != "" {
+				parts = append(parts, block.Text)
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, " ")
 		}
 	}
-	return strings.Join(parts, " ")
+
+	return ""
 }
 
 type Config struct {
@@ -246,11 +266,16 @@ func (inst *Instance) readOutput(r io.Reader, source string) {
 			outputLine.Type = msg.Type
 			outputLine.Subtype = msg.Subtype
 
+			rawPreview := line
+			if len(rawPreview) > 300 {
+				rawPreview = rawPreview[:300]
+			}
 			logger.Debug("runner", "Received message",
 				"featureID", featureShort,
 				"source", source,
 				"type", msg.Type,
-				"subtype", msg.Subtype)
+				"subtype", msg.Subtype,
+				"raw", rawPreview)
 
 			switch msg.Type {
 			case "assistant":
