@@ -474,7 +474,7 @@ func (m Model) renderMainView() string {
 		autoStr = " [AUTO]"
 	}
 
-	s := titleStyle.Render("ralph-go"+autoStr) + " " + dimStyle.Render(summaryStr) + "\n"
+	s := titleStyle.Render("ralph-go v0.2.4"+autoStr) + " " + dimStyle.Render(summaryStr) + "\n"
 	s += headerStyle.Render(m.prd.Title) + "\n\n"
 
 	for i, feature := range m.prd.Features {

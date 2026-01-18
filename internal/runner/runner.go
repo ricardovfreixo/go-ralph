@@ -70,8 +70,11 @@ type MessageContent struct {
 }
 
 type ContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type      string `json:"type"`
+	Text      string `json:"text,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Content   string `json:"content,omitempty"`
+	ToolUseID string `json:"tool_use_id,omitempty"`
 }
 
 func extractTextContent(raw json.RawMessage) string {
@@ -100,8 +103,21 @@ func extractTextContent(raw json.RawMessage) string {
 	if err := json.Unmarshal(mc.Content, &blocks); err == nil {
 		var parts []string
 		for _, block := range blocks {
-			if block.Type == "text" && block.Text != "" {
-				parts = append(parts, block.Text)
+			switch block.Type {
+			case "text":
+				if block.Text != "" {
+					parts = append(parts, block.Text)
+				}
+			case "tool_use":
+				parts = append(parts, fmt.Sprintf("[Tool: %s]", block.Name))
+			case "tool_result":
+				if block.Content != "" {
+					content := block.Content
+					if len(content) > 100 {
+						content = content[:100] + "..."
+					}
+					parts = append(parts, content)
+				}
 			}
 		}
 		if len(parts) > 0 {

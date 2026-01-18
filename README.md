@@ -28,7 +28,7 @@ Inspired by [Anthropic's Ralph Loop](https://github.com/anthropics/claude-plugin
 
 ```bash
 # Download latest
-curl -L https://github.com/ricardovfreixo/go-ralph/raw/main/dist/v0.2.0/linux-amd64/ralph -o ralph
+curl -L https://github.com/ricardovfreixo/go-ralph/raw/main/dist/v0.2.4/linux-amd64/ralph -o ralph
 chmod +x ralph
 sudo mv ralph /usr/local/bin/  # or ~/.local/bin/
 ```
@@ -86,7 +86,7 @@ ralph PRD.md
 | `S` | Start ALL (auto mode) |
 | `r` | Retry failed feature |
 | `R` | Reset feature |
-| `Ctrl+r` | Reset ALL features |
+| `Ctrl+r` | Reset ALL features (deletes progress.md) |
 | `x` | Stop feature |
 | `X` | Stop ALL |
 | `?` | Help |
@@ -137,6 +137,7 @@ All generated files are created in the same directory as the PRD file. This dire
 |------|---------|
 | `PRD.md` | Project requirements (input) |
 | `progress.json` | State tracking (auto-generated) |
+| `progress.md` | Context notes for subsequent features (written by Claude) |
 | `input_design/` | Design assets |
 | `.claude/CLAUDE.md` | PRD authoring guide for Claude |
 | `.ralph/` | Logs and ralph runtime data (git-ignored) |
