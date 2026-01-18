@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -37,6 +38,7 @@ type Model struct {
 	err          error
 	quitting     bool
 	confirmQuit  bool
+	confirmReset bool
 	autoMode     bool
 	statusMsg    string
 	statusExpiry time.Time
@@ -142,7 +144,7 @@ func (m Model) handleInstanceDone(msg instanceDoneMsg) (tea.Model, tea.Cmd) {
 				if feature != nil {
 					m.state.Save()
 					return m, tea.Batch(
-						startFeature(*feature, m.prd.Context, m.manager),
+						startFeature(*feature, m.prd.Context, m.workDir, m.manager),
 						tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{} }),
 					)
 				}
@@ -199,7 +201,7 @@ func (m Model) autoStartNext() (tea.Model, tea.Cmd) {
 		if fs == nil || fs.Status == "pending" || fs.Status == "" {
 			m.setStatus(fmt.Sprintf("Starting %s...", feature.Title))
 			return m, tea.Batch(
-				startFeature(feature, m.prd.Context, m.manager),
+				startFeature(feature, m.prd.Context, m.workDir, m.manager),
 				tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{} }),
 			)
 		}
@@ -212,7 +214,7 @@ func (m Model) autoStartNext() (tea.Model, tea.Cmd) {
 			m.setStatus(fmt.Sprintf("Retrying %s...", feature.Title))
 			m.manager.ClearInstance(id)
 			return m, tea.Batch(
-				startFeature(*feature, m.prd.Context, m.manager),
+				startFeature(*feature, m.prd.Context, m.workDir, m.manager),
 				tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{} }),
 			)
 		}
@@ -240,6 +242,25 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "n", "N", "esc":
 			m.confirmQuit = false
+			return m, nil
+		}
+		return m, nil
+	}
+
+	if m.confirmReset {
+		switch msg.String() {
+		case "y", "Y":
+			m.confirmReset = false
+			m.autoMode = false
+			m.manager.StopAll()
+			m.state.ResetAll()
+			m.state.Save()
+			deleteProgressMD(m.workDir)
+			m.setStatus("Reset all features and cleared progress.md")
+			logger.Info("tui", "Reset all features and deleted progress.md")
+			return m, nil
+		case "n", "N", "esc":
+			m.confirmReset = false
 			return m, nil
 		}
 		return m, nil
@@ -285,7 +306,7 @@ func (m Model) handleMainView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.manager.ClearInstance(feature.ID)
-			return m, startFeature(feature, m.prd.Context, m.manager)
+			return m, startFeature(feature, m.prd.Context, m.workDir, m.manager)
 		}
 	case "S":
 		if m.prd != nil && !m.autoMode {
@@ -299,7 +320,7 @@ func (m Model) handleMainView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			status := m.getFeatureStatus(feature.ID)
 			if status == "failed" || status == "completed" || status == "stopped" {
 				m.manager.ClearInstance(feature.ID)
-				return m, startFeature(feature, m.prd.Context, m.manager)
+				return m, startFeature(feature, m.prd.Context, m.workDir, m.manager)
 			}
 		}
 	case "R":
@@ -322,12 +343,7 @@ func (m Model) handleMainView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.manager.StopAll()
 		m.setStatus("Stopped all instances")
 	case "ctrl+r":
-		m.autoMode = false
-		m.manager.StopAll()
-		m.state.ResetAll()
-		m.state.Save()
-		m.setStatus("Reset all features")
-		logger.Info("tui", "Reset all features")
+		m.confirmReset = true
 	case "?":
 		m.currentView = viewHelp
 	}
@@ -367,7 +383,7 @@ func (m Model) handleInspectView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				status := m.getFeatureStatus(m.inspecting)
 				if status != "running" {
 					m.manager.ClearInstance(m.inspecting)
-					return m, startFeature(*feature, m.prd.Context, m.manager)
+					return m, startFeature(*feature, m.prd.Context, m.workDir, m.manager)
 				}
 			}
 		}
@@ -492,6 +508,8 @@ func (m Model) renderMainView() string {
 
 	if m.confirmQuit {
 		s += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render("Quit? (y/n)")
+	} else if m.confirmReset {
+		s += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render("Reset ALL features and delete progress.md? (y/n)")
 	} else {
 		s += "\n" + dimStyle.Render("s: start • S: start all • r: retry • R: reset • x: stop • X: stop all • ?: help • q: quit")
 	}
@@ -615,6 +633,11 @@ Auto Mode:
 `
 	s += lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render("Press q or ? to close")
 	return s
+}
+
+func deleteProgressMD(workDir string) {
+	path := filepath.Join(workDir, "progress.md")
+	os.Remove(path)
 }
 
 func statusIcon(status string) string {

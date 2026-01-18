@@ -160,11 +160,21 @@ func generateID(title string) string {
 }
 
 func (f *Feature) ToPrompt(context string) string {
+	return f.ToPromptWithProgress(context, "")
+}
+
+func (f *Feature) ToPromptWithProgress(context string, progressContent string) string {
 	var sb strings.Builder
 
 	sb.WriteString("# Project Context\n\n")
 	sb.WriteString(context)
 	sb.WriteString("\n\n")
+
+	if progressContent != "" {
+		sb.WriteString("# Progress from Previous Features\n\n")
+		sb.WriteString(progressContent)
+		sb.WriteString("\n\n")
+	}
 
 	sb.WriteString("# Current Feature: ")
 	sb.WriteString(f.Title)
@@ -198,7 +208,11 @@ func (f *Feature) ToPrompt(context string) string {
 	sb.WriteString("2. Write tests for each implemented feature\n")
 	sb.WriteString("3. Run all tests and ensure they pass\n")
 	sb.WriteString("4. Verify all acceptance criteria are met\n")
-	sb.WriteString("5. Update progress.md with your changes\n")
+	sb.WriteString("5. Update progress.md with important context for future features:\n")
+	sb.WriteString("   - Key implementation decisions and patterns established\n")
+	sb.WriteString("   - File locations and architecture notes\n")
+	sb.WriteString("   - Any dependencies or setup required by future features\n")
+	sb.WriteString("   - Do NOT summarize or compact existing content - append new notes\n")
 
 	return sb.String()
 }

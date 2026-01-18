@@ -23,7 +23,7 @@ func main() {
 		printHelp()
 		os.Exit(0)
 	case "--version", "-v":
-		fmt.Println("ralph-go v0.2.1")
+		fmt.Println("ralph-go v0.2.2")
 		os.Exit(0)
 	case "init":
 		runInit()

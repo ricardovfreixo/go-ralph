@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/vx/ralph-go/internal/parser"
@@ -53,9 +56,10 @@ func loadState(prdPath string) tea.Cmd {
 	}
 }
 
-func startFeature(feature parser.Feature, context string, mgr *runner.Manager) tea.Cmd {
+func startFeature(feature parser.Feature, context string, workDir string, mgr *runner.Manager) tea.Cmd {
 	return func() tea.Msg {
-		prompt := feature.ToPrompt(context)
+		progressContent := readProgressMD(workDir)
+		prompt := feature.ToPromptWithProgress(context, progressContent)
 		instance, err := mgr.StartInstance(feature.ID, feature.Model, prompt)
 		if err != nil {
 			return instanceStartedMsg{
@@ -68,6 +72,15 @@ func startFeature(feature parser.Feature, context string, mgr *runner.Manager) t
 			instance:  instance,
 		}
 	}
+}
+
+func readProgressMD(workDir string) string {
+	path := filepath.Join(workDir, "progress.md")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(content)
 }
 
 func listenForOutput(featureID string, instance *runner.Instance) tea.Cmd {

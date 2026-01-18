@@ -63,6 +63,35 @@ type StreamMessage struct {
 	SessionID string          `json:"session_id,omitempty"`
 }
 
+// Nested message content structure
+type MessageContent struct {
+	Content []ContentBlock `json:"content"`
+}
+
+type ContentBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
+func extractTextContent(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	var mc MessageContent
+	if err := json.Unmarshal(raw, &mc); err != nil {
+		return ""
+	}
+
+	var parts []string
+	for _, block := range mc.Content {
+		if block.Type == "text" && block.Text != "" {
+			parts = append(parts, block.Text)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 type Config struct {
 	MaxRetries    int
 	RetryDelay    time.Duration
@@ -225,10 +254,19 @@ func (inst *Instance) readOutput(r io.Reader, source string) {
 
 			switch msg.Type {
 			case "assistant":
-				outputLine.Content = msg.Content
-				inst.detectTestResults(msg.Content)
+				outputLine.Content = extractTextContent(msg.Message)
+				if outputLine.Content == "" {
+					outputLine.Content = msg.Content
+				}
+				inst.detectTestResults(outputLine.Content)
+				if len(outputLine.Content) > 200 {
+					outputLine.Content = outputLine.Content[:200] + "..."
+				}
 			case "user":
-				outputLine.Content = msg.Content
+				outputLine.Content = extractTextContent(msg.Message)
+				if outputLine.Content == "" {
+					outputLine.Content = msg.Content
+				}
 			case "system":
 				outputLine.Content = msg.Content
 				outputLine.Subtype = msg.Subtype
