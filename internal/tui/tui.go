@@ -321,6 +321,13 @@ func (m Model) handleMainView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.autoMode = false
 		m.manager.StopAll()
 		m.setStatus("Stopped all instances")
+	case "ctrl+r":
+		m.autoMode = false
+		m.manager.StopAll()
+		m.state.ResetAll()
+		m.state.Save()
+		m.setStatus("Reset all features")
+		logger.Info("tui", "Reset all features")
 	case "?":
 		m.currentView = viewHelp
 	}
@@ -592,6 +599,7 @@ Actions:
   R             Reset feature (clear attempts)
   x             Stop selected feature
   X             Stop ALL features (exit auto mode)
+  Ctrl+r        Reset ALL features (start fresh)
 
 General:
   ?             Toggle help

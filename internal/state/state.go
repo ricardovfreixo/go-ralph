@@ -269,6 +269,21 @@ func (p *Progress) ResetFeature(id string) {
 	p.UpdatedAt = time.Now()
 }
 
+func (p *Progress) ResetAll() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for _, f := range p.Features {
+		f.Status = "pending"
+		f.StartedAt = nil
+		f.CompletedAt = nil
+		f.Attempts = 0
+		f.LastError = ""
+		f.TestResults = nil
+	}
+	p.UpdatedAt = time.Now()
+}
+
 func (p *Progress) GetPendingFeatures() []string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

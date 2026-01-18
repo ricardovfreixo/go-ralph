@@ -86,6 +86,7 @@ ralph PRD.md
 | `S` | Start ALL (auto mode) |
 | `r` | Retry failed feature |
 | `R` | Reset feature |
+| `Ctrl+r` | Reset ALL features |
 | `x` | Stop feature |
 | `X` | Stop ALL |
 | `?` | Help |
