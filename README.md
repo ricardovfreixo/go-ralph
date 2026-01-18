@@ -130,12 +130,20 @@ Acceptance: What must be true when done
 
 ## Project Files
 
+All generated files are created in the same directory as the PRD file. This directory becomes the working directory for Claude Code instances.
+
 | File | Purpose |
 |------|---------|
 | `PRD.md` | Project requirements (input) |
-| `progress.md` | State tracking (auto-generated) |
+| `progress.json` | State tracking (auto-generated) |
 | `input_design/` | Design assets |
 | `.claude/CLAUDE.md` | PRD authoring guide for Claude |
+| `.ralph/` | Logs and ralph runtime data (git-ignored) |
+
+To monitor ralph activity in real-time:
+```bash
+tail -f .ralph/ralph.log
+```
 
 ## Documentation
 

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vx/ralph-go/internal/logger"
 )
 
 type Instance struct {
@@ -48,23 +50,23 @@ type TestResults struct {
 
 // Claude Code stream-json message types
 type StreamMessage struct {
-	Type       string          `json:"type"`
-	Subtype    string          `json:"subtype,omitempty"`
-	CostUSD    float64         `json:"cost_usd,omitempty"`
-	Duration   float64         `json:"duration_ms,omitempty"`
-	Message    json.RawMessage `json:"message,omitempty"`
-	Content    string          `json:"content,omitempty"`
-	Tool       string          `json:"tool,omitempty"`
-	ToolInput  json.RawMessage `json:"tool_input,omitempty"`
-	Result     string          `json:"result,omitempty"`
-	IsError    bool            `json:"is_error,omitempty"`
-	SessionID  string          `json:"session_id,omitempty"`
+	Type      string          `json:"type"`
+	Subtype   string          `json:"subtype,omitempty"`
+	CostUSD   float64         `json:"cost_usd,omitempty"`
+	Duration  float64         `json:"duration_ms,omitempty"`
+	Message   json.RawMessage `json:"message,omitempty"`
+	Content   string          `json:"content,omitempty"`
+	Tool      string          `json:"tool,omitempty"`
+	ToolInput json.RawMessage `json:"tool_input,omitempty"`
+	Result    string          `json:"result,omitempty"`
+	IsError   bool            `json:"is_error,omitempty"`
+	SessionID string          `json:"session_id,omitempty"`
 }
 
 type Config struct {
-	MaxRetries     int
-	RetryDelay     time.Duration
-	MaxConcurrent  int
+	MaxRetries    int
+	RetryDelay    time.Duration
+	MaxConcurrent int
 }
 
 func DefaultConfig() Config {
@@ -140,7 +142,6 @@ func (m *Manager) StartInstance(featureID string, model string, prompt string) (
 
 	args := []string{
 		"--dangerously-skip-permissions",
-		"-p",
 		"--verbose",
 		"--output-format", "stream-json",
 	}
@@ -149,10 +150,17 @@ func (m *Manager) StartInstance(featureID string, model string, prompt string) (
 		args = append(args, "--model", model)
 	}
 
-	args = append(args, prompt)
+	args = append(args, "-p", prompt)
 
 	inst.cmd = exec.CommandContext(ctx, "claude", args...)
 	inst.cmd.Dir = m.workDir
+
+	logger.Info("runner", "Starting claude instance",
+		"featureID", featureID[:8],
+		"model", model,
+		"workDir", m.workDir,
+		"promptLen", len(prompt))
+	logger.Debug("runner", "Full command args", "args", strings.Join(args[:len(args)-1], " ")+" -p <prompt>")
 
 	stdout, err := inst.cmd.StdoutPipe()
 	if err != nil {
@@ -168,8 +176,11 @@ func (m *Manager) StartInstance(featureID string, model string, prompt string) (
 
 	if err := inst.cmd.Start(); err != nil {
 		cancel()
+		logger.Error("runner", "Failed to start claude", "featureID", featureID[:8], "error", err)
 		return nil, fmt.Errorf("failed to start claude: %w", err)
 	}
+
+	logger.Info("runner", "Claude process started", "featureID", featureID[:8], "pid", inst.cmd.Process.Pid)
 
 	inst.Status = "running"
 	m.instances[featureID] = inst
@@ -184,6 +195,11 @@ func (m *Manager) StartInstance(featureID string, model string, prompt string) (
 func (inst *Instance) readOutput(r io.Reader, source string) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+
+	featureShort := inst.FeatureID
+	if len(featureShort) > 8 {
+		featureShort = featureShort[:8]
+	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -200,6 +216,12 @@ func (inst *Instance) readOutput(r io.Reader, source string) {
 		if err := json.Unmarshal([]byte(line), &msg); err == nil {
 			outputLine.Type = msg.Type
 			outputLine.Subtype = msg.Subtype
+
+			logger.Debug("runner", "Received message",
+				"featureID", featureShort,
+				"source", source,
+				"type", msg.Type,
+				"subtype", msg.Subtype)
 
 			switch msg.Type {
 			case "assistant":
@@ -308,12 +330,18 @@ func (inst *Instance) detectTestResults(content string) {
 }
 
 func (inst *Instance) waitForCompletion() {
+	featureShort := inst.FeatureID
+	if len(featureShort) > 8 {
+		featureShort = featureShort[:8]
+	}
+
 	err := inst.cmd.Wait()
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
 
 	now := time.Now()
 	inst.CompletedAt = &now
+	duration := now.Sub(inst.StartedAt)
 
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -323,13 +351,27 @@ func (inst *Instance) waitForCompletion() {
 		if inst.Error == "" {
 			inst.Error = err.Error()
 		}
+		logger.Error("runner", "Instance failed",
+			"featureID", featureShort,
+			"exitCode", inst.ExitCode,
+			"error", inst.Error,
+			"duration", duration.Round(time.Second))
 	} else {
 		inst.ExitCode = 0
 		if inst.TestResults.Failed > 0 {
 			inst.Status = "failed"
 			inst.Error = fmt.Sprintf("%d tests failed", inst.TestResults.Failed)
+			logger.Warn("runner", "Instance completed with test failures",
+				"featureID", featureShort,
+				"passed", inst.TestResults.Passed,
+				"failed", inst.TestResults.Failed,
+				"duration", duration.Round(time.Second))
 		} else {
 			inst.Status = "completed"
+			logger.Info("runner", "Instance completed successfully",
+				"featureID", featureShort,
+				"passed", inst.TestResults.Passed,
+				"duration", duration.Round(time.Second))
 		}
 	}
 	close(inst.outputCh)

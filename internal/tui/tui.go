@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/vx/ralph-go/internal/logger"
 	"github.com/vx/ralph-go/internal/parser"
 	"github.com/vx/ralph-go/internal/runner"
 	"github.com/vx/ralph-go/internal/state"
@@ -69,9 +70,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prdLoadedMsg:
 		if msg.err != nil {
 			m.err = msg.err
+			logger.Error("tui", "Failed to load PRD", "error", msg.err)
 			return m, nil
 		}
 		m.prd = msg.prd
+		logger.Info("tui", "PRD loaded", "title", m.prd.Title, "features", len(m.prd.Features))
 		for _, f := range m.prd.Features {
 			if m.state != nil {
 				m.state.InitFeature(f.ID, f.Title)
@@ -92,9 +95,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case instanceStartedMsg:
 		if msg.err != nil {
+			logger.Error("tui", "Failed to start instance", "featureID", msg.featureID[:8], "error", msg.err)
 			m.setStatus(fmt.Sprintf("Error: %v", msg.err))
 			return m, nil
 		}
+		logger.Info("tui", "Instance started", "featureID", msg.featureID[:8])
 		m.state.UpdateFeature(msg.featureID, "running")
 		m.state.Save()
 		return m, listenForOutput(msg.featureID, msg.instance)
@@ -620,7 +625,17 @@ func statusIcon(status string) string {
 }
 
 func Run(prdPath string) error {
+	workDir := filepath.Dir(prdPath)
+	if err := logger.Init(workDir); err != nil {
+		return fmt.Errorf("failed to init logger: %w", err)
+	}
+	defer logger.Close()
+
+	logger.Info("tui", "Starting ralph", "prd", prdPath)
+
 	p := tea.NewProgram(initialModel(prdPath), tea.WithAltScreen())
 	_, err := p.Run()
+
+	logger.Info("tui", "Ralph exiting", "error", err)
 	return err
 }

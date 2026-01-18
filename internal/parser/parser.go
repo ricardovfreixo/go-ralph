@@ -10,21 +10,21 @@ import (
 )
 
 type PRD struct {
-	Title       string
-	Context     string
-	Features    []Feature
-	RawContent  string
+	Title      string
+	Context    string
+	Features   []Feature
+	RawContent string
 }
 
 type Feature struct {
-	ID              string
-	Title           string
-	Description     string
-	ExecutionMode   string // "sequential" or "parallel"
-	Model           string // "sonnet", "opus", "haiku"
-	Tasks           []Task
+	ID                 string
+	Title              string
+	Description        string
+	ExecutionMode      string // "sequential" or "parallel"
+	Model              string // "sonnet", "opus", "haiku"
+	Tasks              []Task
 	AcceptanceCriteria []string
-	RawContent      string
+	RawContent         string
 }
 
 type Task struct {
@@ -34,10 +34,10 @@ type Task struct {
 }
 
 var (
-	h1Regex     = regexp.MustCompile(`^#\s+(.+)$`)
-	h2Regex     = regexp.MustCompile(`^##\s+(.+)$`)
-	taskRegex   = regexp.MustCompile(`^[-*]\s+\[([ xX])\]\s+(.+)$`)
-	metaRegex   = regexp.MustCompile(`(?i)^(execution|mode|model|run):\s*(.+)$`)
+	h1Regex       = regexp.MustCompile(`^#\s+(.+)$`)
+	h2Regex       = regexp.MustCompile(`^##\s+(.+)$`)
+	taskRegex     = regexp.MustCompile(`^[-*]\s+\[([ xX])\]\s+(.+)$`)
+	metaRegex     = regexp.MustCompile(`(?i)^(execution|mode|model|run):\s*(.+)$`)
 	criteriaRegex = regexp.MustCompile(`(?i)^(acceptance|criteria|test):\s*(.+)$`)
 )
 

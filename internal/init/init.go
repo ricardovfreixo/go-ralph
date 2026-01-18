@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const claudeMDContent = `# Ralph PRD Authoring Guide
@@ -98,6 +99,16 @@ Run ralph to start autonomous development:
 ` + "```bash" + `
 ralph PRD.md
 ` + "```" + `
+
+## Working Directory
+
+All generated code and files are created in the same directory as the PRD file. This directory becomes the working directory for each Claude Code instance.
+
+**Generated files:**
+- ` + "`progress.json`" + ` - tracks feature status and attempts
+- ` + "`.ralph/ralph.log`" + ` - runtime logs (useful for debugging)
+
+Monitor activity: ` + "`tail -f .ralph/ralph.log`" + `
 `
 
 const prdTemplate = `# Project Name
@@ -145,6 +156,30 @@ Model: sonnet
 Acceptance: Tests pass
 `
 
+func appendToGitignore(path, entry string) error {
+	content, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	lines := string(content)
+	if strings.Contains(lines, entry) {
+		return nil
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if len(content) > 0 && content[len(content)-1] != '\n' {
+		f.WriteString("\n")
+	}
+	_, err = f.WriteString(entry + "\n")
+	return err
+}
+
 func Run(force bool) error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -182,6 +217,13 @@ func Run(force bool) error {
 		return fmt.Errorf("failed to create input_design directory: %w", err)
 	}
 	fmt.Println("  Created input_design/")
+
+	gitignorePath := filepath.Join(cwd, ".gitignore")
+	if err := appendToGitignore(gitignorePath, ".ralph/"); err != nil {
+		fmt.Printf("  Warning: could not update .gitignore: %v\n", err)
+	} else {
+		fmt.Println("  Added .ralph/ to .gitignore")
+	}
 
 	fmt.Println()
 	fmt.Println("Next steps:")
