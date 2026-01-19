@@ -101,6 +101,11 @@ func NewProgress() *Progress {
 func LoadProgress(prdPath string) (*Progress, error) {
 	dir := filepath.Dir(prdPath)
 	progressPath := filepath.Join(dir, "progress.json")
+	return LoadProgressFromPath(progressPath)
+}
+
+func LoadProgressFromPath(progressPath string) (*Progress, error) {
+	dir := filepath.Dir(progressPath)
 
 	// Try .json first, fall back to .md for backwards compatibility
 	data, err := os.ReadFile(progressPath)
@@ -166,6 +171,12 @@ func (p *Progress) SetPath(prdPath string) {
 	defer p.mu.Unlock()
 	dir := filepath.Dir(prdPath)
 	p.path = filepath.Join(dir, "progress.json")
+}
+
+func (p *Progress) SetPathDirect(path string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.path = path
 }
 
 func (p *Progress) GetPath() string {

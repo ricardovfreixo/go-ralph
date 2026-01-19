@@ -12,6 +12,7 @@ import (
 	"github.com/vx/ralph-go/internal/actions"
 	"github.com/vx/ralph-go/internal/escalation"
 	"github.com/vx/ralph-go/internal/logger"
+	"github.com/vx/ralph-go/internal/manifest"
 	"github.com/vx/ralph-go/internal/parser"
 	"github.com/vx/ralph-go/internal/retry"
 	"github.com/vx/ralph-go/internal/rlm"
@@ -63,6 +64,10 @@ type Model struct {
 	budgetAlertShown    bool
 	pendingFeatureStart *parser.Feature
 	childResults        map[string][]string
+	// Manifest mode fields
+	manifestMode bool
+	manifest     *manifest.Manifest
+	prdDir       string
 }
 
 func initialModel(prdPath string) Model {
@@ -96,6 +101,12 @@ func initialModel(prdPath string) Model {
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.manifestMode {
+		return tea.Batch(
+			loadManifest(m.prdDir),
+			loadStateFromDir(m.prdDir),
+		)
+	}
 	return tea.Batch(
 		loadPRD(m.prdPath),
 		loadState(m.prdPath),
@@ -138,13 +149,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			logger.Info("tui", "Global budget set", "tokens", m.prd.BudgetTokens, "usd", m.prd.BudgetUSD)
 		}
 		return m, nil
+	case manifestLoadedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			logger.Error("tui", "Failed to load manifest", "error", msg.err)
+			return m, nil
+		}
+		m.manifest = msg.manifest
+		m.prd = msg.prd // Synthetic PRD for TUI compatibility
+		m.layout.SetPRDTitle(m.prd.Title)
+		m.activityLog.AddPRDLoaded(m.prd.Title)
+		logger.Info("tui", "Manifest loaded", "title", m.prd.Title, "features", len(m.prd.Features))
+		for _, f := range m.prd.Features {
+			if m.state != nil {
+				m.state.InitFeature(f.ID, f.Title)
+			}
+		}
+		// Set global budget on manager
+		if m.prd.BudgetTokens > 0 || m.prd.BudgetUSD > 0 {
+			m.manager.SetGlobalBudget(m.prd.BudgetTokens, m.prd.BudgetUSD)
+			logger.Info("tui", "Global budget set", "tokens", m.prd.BudgetTokens, "usd", m.prd.BudgetUSD)
+		}
+		return m, nil
 	case stateLoadedMsg:
 		if msg.err != nil {
 			m.state = state.NewProgress()
 		} else {
 			m.state = msg.state
 		}
-		m.state.SetPath(m.prdPath)
+		// In manifest mode, state path is already set by loadStateFromDir
+		if !m.manifestMode {
+			m.state.SetPath(m.prdPath)
+		}
 		m.manager.SetConfig(runner.Config{
 			MaxRetries:    m.state.Config.MaxRetries,
 			MaxConcurrent: m.state.Config.MaxConcurrent,
@@ -1419,4 +1455,51 @@ func Run(prdPath string) error {
 
 	logger.Info("tui", "Ralph exiting", "error", err)
 	return err
+}
+
+func RunWithManifest(prdDir string) error {
+	workDir := filepath.Dir(prdDir)
+	if err := logger.Init(workDir); err != nil {
+		return fmt.Errorf("failed to init logger: %w", err)
+	}
+	defer logger.Close()
+
+	logger.Info("tui", "Starting ralph in manifest mode", "prdDir", prdDir)
+
+	p := tea.NewProgram(initialModelForManifest(prdDir), tea.WithAltScreen())
+	_, err := p.Run()
+
+	logger.Info("tui", "Ralph exiting", "error", err)
+	return err
+}
+
+func initialModelForManifest(prdDir string) Model {
+	workDir := filepath.Dir(prdDir)
+	actLog := layout.NewActivityLog()
+	rlmMgr := rlm.NewManager()
+	mgr := runner.NewManager(workDir)
+	spawnHandler := rlm.NewSpawnHandler(rlmMgr, nil)
+	childExec := runner.NewChildExecutor(mgr, spawnHandler)
+	escalationMgr := escalation.NewManager()
+	retryStrat := retry.NewStrategy()
+	return Model{
+		prdDir:        prdDir,
+		workDir:       workDir,
+		manifestMode:  true,
+		manager:       mgr,
+		spawnHandler:  spawnHandler,
+		childExecutor: childExec,
+		escalationMgr: escalationMgr,
+		retryStrategy: retryStrat,
+		layout:        layout.New(),
+		splitPane:     layout.NewSplitPane(),
+		taskList:      layout.NewTaskList(),
+		activityLog:   actLog,
+		activityPane:  layout.NewActivityPane(actLog),
+		modal:         layout.NewModal(),
+		helpModal:     layout.NewHelpModal(),
+		confirmDialog: layout.NewConfirmDialog(),
+		currentView:   viewMain,
+		childResults:  make(map[string][]string),
+	}
 }

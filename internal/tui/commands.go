@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/vx/ralph-go/internal/manifest"
 	"github.com/vx/ralph-go/internal/parser"
 	"github.com/vx/ralph-go/internal/rlm"
 	"github.com/vx/ralph-go/internal/runner"
@@ -15,6 +16,12 @@ import (
 type prdLoadedMsg struct {
 	prd *parser.PRD
 	err error
+}
+
+type manifestLoadedMsg struct {
+	manifest *manifest.Manifest
+	prd      *parser.PRD // Synthetic PRD from manifest
+	err      error
 }
 
 type stateLoadedMsg struct {
@@ -84,6 +91,60 @@ func loadState(prdPath string) tea.Cmd {
 		progress, err := state.LoadProgress(prdPath)
 		return stateLoadedMsg{state: progress, err: err}
 	}
+}
+
+func loadManifest(prdDir string) tea.Cmd {
+	return func() tea.Msg {
+		m, err := manifest.Load(prdDir)
+		if err != nil {
+			return manifestLoadedMsg{err: err}
+		}
+		// Create synthetic PRD from manifest
+		prd := manifestToPRD(m, prdDir)
+		return manifestLoadedMsg{manifest: m, prd: prd}
+	}
+}
+
+func loadStateFromDir(prdDir string) tea.Cmd {
+	return func() tea.Msg {
+		// Load state from PRD/progress.json
+		progressPath := filepath.Join(prdDir, "progress.json")
+		progress, err := state.LoadProgressFromPath(progressPath)
+		if err != nil {
+			// Create new progress if doesn't exist
+			progress = state.NewProgress()
+		}
+		progress.SetPathDirect(progressPath)
+		return stateLoadedMsg{state: progress, err: nil}
+	}
+}
+
+// manifestToPRD converts a manifest to a synthetic PRD for TUI compatibility
+func manifestToPRD(m *manifest.Manifest, prdDir string) *parser.PRD {
+	prd := &parser.PRD{
+		Title:        m.Title,
+		Context:      "", // Context will be read from feature.md files
+		BudgetTokens: m.BudgetTokens,
+		BudgetUSD:    m.BudgetUSD,
+	}
+
+	for _, mf := range m.Features {
+		// Read feature content from feature.md
+		featurePath := filepath.Join(prdDir, mf.Dir, "feature.md")
+		content, _ := os.ReadFile(featurePath)
+
+		feature := parser.Feature{
+			ID:            mf.ID,
+			Title:         mf.Title,
+			Description:   string(content),
+			ExecutionMode: mf.Execution,
+			Model:         mf.Model,
+			DependsOn:     mf.DependsOn,
+		}
+		prd.Features = append(prd.Features, feature)
+	}
+
+	return prd
 }
 
 func startFeature(feature parser.Feature, context string, workDir string, mgr *runner.Manager) tea.Cmd {

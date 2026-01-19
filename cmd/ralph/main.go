@@ -19,7 +19,7 @@ func main() {
 
 	if len(os.Args) < 2 {
 		if auto.PRDDirExists() {
-			runAuto()
+			runTUIManifest()
 		} else {
 			printUsage()
 		}
@@ -33,6 +33,20 @@ func main() {
 	case "--version", "-v":
 		fmt.Println(layout.AppName + " " + layout.AppVersion)
 		os.Exit(0)
+	case "--headless":
+		if auto.PRDDirExists() {
+			runAuto()
+		} else {
+			fmt.Println("Error: PRD/ directory not found. Run 'ralph init PRD.md' first.")
+			os.Exit(1)
+		}
+	case "run":
+		if auto.PRDDirExists() {
+			runAuto()
+		} else {
+			fmt.Println("Error: PRD/ directory not found. Run 'ralph init PRD.md' first.")
+			os.Exit(1)
+		}
 	case "init":
 		runInit()
 	case "status":
@@ -104,11 +118,34 @@ func runInit() {
 	}
 }
 
+func runTUIManifest() {
+	prdDir, err := auto.FindPRDDir()
+	if err != nil {
+		log.Fatal("Failed to find PRD directory", "error", err)
+	}
+
+	if err := tui.RunWithManifest(prdDir); err != nil {
+		log.Fatal("Error running TUI", "error", err)
+	}
+}
+
 func runTUI(prdPath string) {
 	if _, err := os.Stat(prdPath); os.IsNotExist(err) {
 		log.Fatal("PRD file not found", "path", prdPath)
 	}
 
+	// Check if PRD/ directory exists - if so, use manifest mode
+	if auto.PRDDirExists() {
+		prdDir, err := auto.FindPRDDir()
+		if err == nil {
+			if err := tui.RunWithManifest(prdDir); err != nil {
+				log.Fatal("Error running TUI", "error", err)
+			}
+			return
+		}
+	}
+
+	// Legacy mode - parse PRD file directly
 	if err := tui.Run(prdPath); err != nil {
 		log.Fatal("Error running TUI", "error", err)
 	}
@@ -118,16 +155,17 @@ func printUsage() {
 	fmt.Println(`ralph-go - Autonomous development orchestrator
 
 Usage:
-  ralph                   Run next pending feature (requires PRD/ directory)
-  ralph <PRD.md>          Run interactive TUI with a PRD file (legacy mode)
+  ralph                   Run TUI (requires PRD/ directory)
+  ralph run               Run next feature headless and exit
+  ralph <PRD.md>          Run TUI (uses PRD/ if exists, else legacy mode)
   ralph status            Show current PRD progress
-  ralph init              Initialize a new ralph project
   ralph init <PRD.md>     Create PRD/ directory structure from PRD file
   ralph help [command]    Show help for a command
 
-Workflows:
-  New workflow (autonomous):  ralph init PRD.md && ralph
-  Legacy workflow (TUI):      ralph PRD.md
+Workflow:
+  ralph init PRD.md       # Create PRD/ directory structure
+  ralph                   # Run TUI to manage features
+  ralph run               # Or run single feature headless
 
 Run 'ralph --help' for more information.`)
 }
@@ -136,15 +174,18 @@ func printHelp() {
 	fmt.Println(`ralph-go - Autonomous development orchestrator
 
 Usage:
-  ralph                         Run next pending feature (requires PRD/ directory)
-  ralph <PRD.md>                Run interactive TUI with a PRD file (legacy mode)
+  ralph                         Run TUI (requires PRD/ directory)
+  ralph run                     Run next feature headless and exit
+  ralph --headless              Same as 'ralph run'
+  ralph <PRD.md>                Run TUI (uses PRD/ if exists, else legacy mode)
   ralph status                  Show current PRD progress
   ralph init [--force]          Initialize a new ralph project in current directory
   ralph init <PRD.md> [--force] Create PRD/ directory structure from PRD file
   ralph help [command]          Show help for a command
 
 Commands:
-  (no args)   Run next pending feature autonomously (if PRD/ exists), or show usage
+  (no args)   Run TUI if PRD/ exists, otherwise show usage
+  run         Run next pending feature headless and exit
   status      Show feature status, dependencies, and progress summary
   init        Create project files, or generate PRD/ directory from PRD file
   help        Show help for a command
@@ -152,32 +193,26 @@ Commands:
 Options:
   -h, --help      Show this help message
   -v, --version   Show version
+  --headless      Run headless mode (same as 'ralph run')
 
-Two Workflows:
+Workflow:
 
-  1. New Autonomous Workflow (recommended):
-     Uses PRD/ directory structure with manifest-based dependency tracking.
+  ralph init PRD.md         # Create PRD/ directory structure
+  ralph                     # Run TUI to manage features interactively
+  ralph run                 # Or run single feature headless (for CI/scripts)
+  ralph status              # Check progress
 
-     ralph init PRD.md         # Create PRD/ directory structure
-     ralph                     # Run next pending feature and exit
-     ralph status              # Check progress
-
-  2. Legacy TUI Workflow:
-     Interactive mode with real-time output, manual feature control.
-
-     ralph PRD.md              # Launch TUI with PRD file
-
-Autonomous Mode (no args):
-  When run without arguments and PRD/ directory exists, ralph finds the next
-  runnable feature (respecting dependencies), runs it to completion, and exits.
-  If no PRD/ directory exists, shows usage help.
+Headless Mode (ralph run):
+  Finds the next runnable feature (respecting dependencies), runs it to
+  completion, and exits. Useful for CI/CD or scripted execution.
 
   Exit codes:
     0 = Feature completed successfully, or no work to do
     1 = Feature failed
 
-TUI Controls (legacy mode):
+TUI Controls:
   j/k or ↑/↓    Navigate features
+  Space         Expand/collapse child features
   Enter         Inspect running instance output
   s             Start selected feature
   S             Start ALL (auto mode)
@@ -185,8 +220,16 @@ TUI Controls (legacy mode):
   R             Reset feature (clear attempts)
   x             Stop running feature
   X             Stop ALL (exit auto mode)
+  c             Toggle cost display
   ?             Show help
   q             Quit (saves progress)
+
+Inspect View:
+  j/k           Scroll (disables auto-scroll)
+  g/G           Top/bottom
+  f             Follow mode (auto-scroll)
+  a             Toggle action timeline
+  Esc           Back to main view
 
 For more information, see the README.md file.`)
 }
