@@ -1118,7 +1118,10 @@ func (m Model) View() string {
 }
 
 func (m Model) renderMainView() string {
-	total, completed, running, failed, pending := m.state.GetSummary()
+	var total, completed, running, failed, pending int
+	if m.state != nil {
+		total, completed, running, failed, pending = m.state.GetSummary()
+	}
 
 	totalUsage := m.manager.GetTotalUsage()
 	tokenUsageStr := ""
@@ -1190,6 +1193,9 @@ func (m Model) renderMainView() string {
 }
 
 func (m Model) buildTaskItems() []layout.TaskItem {
+	if m.prd == nil {
+		return nil
+	}
 	items := make([]layout.TaskItem, 0, len(m.prd.Features)*2)
 
 	// Build a map of children by parent ID for quick lookup
@@ -1319,7 +1325,10 @@ func (m Model) renderFeatureList() string {
 }
 
 func (m Model) renderMainViewContent() string {
-	total, completed, running, failed, pending := m.state.GetSummary()
+	var total, completed, running, failed, pending int
+	if m.state != nil {
+		total, completed, running, failed, pending = m.state.GetSummary()
+	}
 
 	totalUsage := m.manager.GetTotalUsage()
 	tokenUsageStr := ""
