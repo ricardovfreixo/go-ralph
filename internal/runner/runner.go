@@ -12,23 +12,43 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vx/ralph-go/internal/actions"
+	"github.com/vx/ralph-go/internal/automodel"
 	"github.com/vx/ralph-go/internal/logger"
+	"github.com/vx/ralph-go/internal/usage"
 )
 
+// SpawnCallback is called when a spawn request is detected in output
+type SpawnCallback func(featureID string, line string)
+
+// ModelChangeCallback is called when auto model selection changes the model
+type ModelChangeCallback func(featureID string, fromModel, toModel, reason, details string)
+
 type Instance struct {
-	mu          sync.RWMutex
-	FeatureID   string
-	Model       string
-	Status      string
-	StartedAt   time.Time
-	CompletedAt *time.Time
-	ExitCode    int
-	cmd         *exec.Cmd
-	cancel      context.CancelFunc
-	output      []OutputLine
-	outputCh    chan OutputLine
-	TestResults *TestResults
-	Error       string
+	mu                  sync.RWMutex
+	FeatureID           string
+	Model               string
+	OriginalModel       string
+	IsAutoModel         bool
+	Status              string
+	StartedAt           time.Time
+	CompletedAt         *time.Time
+	ExitCode            int
+	cmd                 *exec.Cmd
+	cancel              context.CancelFunc
+	output              []OutputLine
+	outputCh            chan OutputLine
+	TestResults         *TestResults
+	Error               string
+	Actions             []actions.Action
+	Usage               *usage.TokenUsage
+	BudgetTokens        int64
+	BudgetUSD           float64
+	BudgetPaused        bool
+	BudgetThreshold     bool
+	SpawnCallback       SpawnCallback
+	ModelChangeCallback ModelChangeCallback
+	autoSelector        *automodel.Selector
 }
 
 type OutputLine struct {
@@ -143,25 +163,33 @@ func DefaultConfig() Config {
 }
 
 type Manager struct {
-	mu        sync.RWMutex
-	instances map[string]*Instance
-	workDir   string
-	config    Config
+	mu                  sync.RWMutex
+	instances           map[string]*Instance
+	workDir             string
+	config              Config
+	globalBudgetTokens  int64
+	globalBudgetUSD     float64
+	budgetAcknowledged  bool
+	spawnCallback       SpawnCallback
+	modelChangeCallback ModelChangeCallback
+	autoModelManager    *automodel.Manager
 }
 
 func NewManager(workDir string) *Manager {
 	return &Manager{
-		instances: make(map[string]*Instance),
-		workDir:   workDir,
-		config:    DefaultConfig(),
+		instances:        make(map[string]*Instance),
+		workDir:          workDir,
+		config:           DefaultConfig(),
+		autoModelManager: automodel.NewManager(),
 	}
 }
 
 func NewManagerWithConfig(workDir string, config Config) *Manager {
 	return &Manager{
-		instances: make(map[string]*Instance),
-		workDir:   workDir,
-		config:    config,
+		instances:        make(map[string]*Instance),
+		workDir:          workDir,
+		config:           config,
+		autoModelManager: automodel.NewManager(),
 	}
 }
 
@@ -171,7 +199,31 @@ func (m *Manager) SetConfig(config Config) {
 	m.config = config
 }
 
+// SetSpawnCallback sets the global spawn callback for all instances
+func (m *Manager) SetSpawnCallback(callback SpawnCallback) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.spawnCallback = callback
+}
+
+// SetModelChangeCallback sets the global model change callback for all instances
+func (m *Manager) SetModelChangeCallback(callback ModelChangeCallback) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.modelChangeCallback = callback
+}
+
+// StartInstanceOptions contains optional parameters for starting an instance
+type StartInstanceOptions struct {
+	IsLeafTask bool
+	TaskCount  int
+}
+
 func (m *Manager) StartInstance(featureID string, model string, prompt string) (*Instance, error) {
+	return m.StartInstanceWithOptions(featureID, model, prompt, StartInstanceOptions{})
+}
+
+func (m *Manager) StartInstanceWithOptions(featureID string, model string, prompt string, opts StartInstanceOptions) (*Instance, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -195,14 +247,30 @@ func (m *Manager) StartInstance(featureID string, model string, prompt string) (
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	isAutoModel := automodel.IsAutoMode(model)
+	originalModel := model
+	actualModel := model
+
+	var selector *automodel.Selector
+	if isAutoModel {
+		selector = m.autoModelManager.Register(featureID, opts.IsLeafTask, opts.TaskCount)
+		actualModel = selector.CurrentModel()
+	}
+
 	inst := &Instance{
-		FeatureID:   featureID,
-		Model:       model,
-		Status:      "starting",
-		StartedAt:   time.Now(),
-		cancel:      cancel,
-		outputCh:    make(chan OutputLine, 100),
-		TestResults: &TestResults{},
+		FeatureID:           featureID,
+		Model:               actualModel,
+		OriginalModel:       originalModel,
+		IsAutoModel:         isAutoModel,
+		Status:              "starting",
+		StartedAt:           time.Now(),
+		cancel:              cancel,
+		outputCh:            make(chan OutputLine, 100),
+		TestResults:         &TestResults{},
+		Usage:               usage.New(),
+		SpawnCallback:       m.spawnCallback,
+		ModelChangeCallback: m.modelChangeCallback,
+		autoSelector:        selector,
 	}
 
 	args := []string{
@@ -211,8 +279,8 @@ func (m *Manager) StartInstance(featureID string, model string, prompt string) (
 		"--output-format", "stream-json",
 	}
 
-	if model != "" && model != "sonnet" {
-		args = append(args, "--model", model)
+	if actualModel != "" && actualModel != "sonnet" {
+		args = append(args, "--model", actualModel)
 	}
 
 	args = append(args, "-p", prompt)
@@ -220,9 +288,17 @@ func (m *Manager) StartInstance(featureID string, model string, prompt string) (
 	inst.cmd = exec.CommandContext(ctx, "claude", args...)
 	inst.cmd.Dir = m.workDir
 
+	displayID := featureID
+	if len(displayID) > 8 {
+		displayID = displayID[:8]
+	}
+	logModel := actualModel
+	if isAutoModel {
+		logModel = fmt.Sprintf("auto->%s", actualModel)
+	}
 	logger.Info("runner", "Starting claude instance",
-		"featureID", featureID[:8],
-		"model", model,
+		"featureID", displayID,
+		"model", logModel,
 		"workDir", m.workDir,
 		"promptLen", len(prompt))
 	logger.Debug("runner", "Full command args", "args", strings.Join(args[:len(args)-1], " ")+" -p <prompt>")
@@ -241,11 +317,11 @@ func (m *Manager) StartInstance(featureID string, model string, prompt string) (
 
 	if err := inst.cmd.Start(); err != nil {
 		cancel()
-		logger.Error("runner", "Failed to start claude", "featureID", featureID[:8], "error", err)
+		logger.Error("runner", "Failed to start claude", "featureID", displayID, "error", err)
 		return nil, fmt.Errorf("failed to start claude: %w", err)
 	}
 
-	logger.Info("runner", "Claude process started", "featureID", featureID[:8], "pid", inst.cmd.Process.Pid)
+	logger.Info("runner", "Claude process started", "featureID", displayID, "pid", inst.cmd.Process.Pid)
 
 	inst.Status = "running"
 	m.instances[featureID] = inst
@@ -282,6 +358,12 @@ func (inst *Instance) readOutput(r io.Reader, source string) {
 			outputLine.Type = msg.Type
 			outputLine.Subtype = msg.Subtype
 
+			// Parse token usage from stream-json
+			inst.Usage.ParseLine(line)
+
+			// Process auto model selection
+			inst.processAutoModel(line)
+
 			rawPreview := line
 			if len(rawPreview) > 300 {
 				rawPreview = rawPreview[:300]
@@ -314,6 +396,20 @@ func (inst *Instance) readOutput(r io.Reader, source string) {
 			case "tool_use":
 				outputLine.Tool = msg.Tool
 				outputLine.Content = fmt.Sprintf("[Tool: %s]", msg.Tool)
+				if action := actions.ExtractAction(msg.Tool, msg.ToolInput, outputLine.Timestamp); action != nil {
+					inst.mu.Lock()
+					inst.Actions = append(inst.Actions, *action)
+					inst.mu.Unlock()
+				}
+				// Check for spawn request
+				if msg.Tool == "ralph_spawn_feature" {
+					inst.mu.RLock()
+					callback := inst.SpawnCallback
+					inst.mu.RUnlock()
+					if callback != nil {
+						callback(inst.FeatureID, line)
+					}
+				}
 			case "tool_result":
 				outputLine.Content = msg.Result
 				if msg.IsError {
@@ -474,6 +570,83 @@ func (inst *Instance) SetStatus(status string) {
 	inst.Status = status
 }
 
+// SetSpawnCallback sets the callback for spawn requests
+func (inst *Instance) SetSpawnCallback(callback SpawnCallback) {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	inst.SpawnCallback = callback
+}
+
+// SetModelChangeCallback sets the callback for model changes
+func (inst *Instance) SetModelChangeCallback(callback ModelChangeCallback) {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	inst.ModelChangeCallback = callback
+}
+
+// processAutoModel processes output line for auto model selection
+func (inst *Instance) processAutoModel(line string) {
+	inst.mu.RLock()
+	selector := inst.autoSelector
+	isAuto := inst.IsAutoModel
+	callback := inst.ModelChangeCallback
+	featureID := inst.FeatureID
+	inst.mu.RUnlock()
+
+	if !isAuto || selector == nil {
+		return
+	}
+
+	changed, newModel := selector.ProcessLine(line)
+	if changed {
+		inst.mu.Lock()
+		oldModel := inst.Model
+		inst.Model = newModel
+		inst.mu.Unlock()
+
+		switches := selector.Switches()
+		if len(switches) > 0 {
+			lastSwitch := switches[len(switches)-1]
+			if callback != nil {
+				callback(featureID, oldModel, newModel, string(lastSwitch.Reason), lastSwitch.Details)
+			}
+		}
+	}
+}
+
+// GetModelSwitches returns the model switches for auto model instances
+func (inst *Instance) GetModelSwitches() []automodel.ModelSwitch {
+	inst.mu.RLock()
+	selector := inst.autoSelector
+	inst.mu.RUnlock()
+
+	if selector == nil {
+		return nil
+	}
+	return selector.Switches()
+}
+
+// IsAutoModelEnabled returns true if auto model is enabled for this instance
+func (inst *Instance) IsAutoModelEnabled() bool {
+	inst.mu.RLock()
+	defer inst.mu.RUnlock()
+	return inst.IsAutoModel
+}
+
+// GetOriginalModel returns the original model (before auto selection)
+func (inst *Instance) GetOriginalModel() string {
+	inst.mu.RLock()
+	defer inst.mu.RUnlock()
+	return inst.OriginalModel
+}
+
+// GetCurrentModel returns the current model (after auto selection)
+func (inst *Instance) GetCurrentModel() string {
+	inst.mu.RLock()
+	defer inst.mu.RUnlock()
+	return inst.Model
+}
+
 func (inst *Instance) GetError() string {
 	inst.mu.RLock()
 	defer inst.mu.RUnlock()
@@ -519,6 +692,142 @@ func (inst *Instance) GetOutputLines() []OutputLine {
 	return result
 }
 
+func (inst *Instance) GetActions() []actions.Action {
+	inst.mu.RLock()
+	defer inst.mu.RUnlock()
+	result := make([]actions.Action, len(inst.Actions))
+	copy(result, inst.Actions)
+	return result
+}
+
+func (inst *Instance) GetActionSummary() actions.ActionSummary {
+	inst.mu.RLock()
+	defer inst.mu.RUnlock()
+
+	var summary actions.ActionSummary
+	for _, action := range inst.Actions {
+		switch action.Type {
+		case actions.ActionWrite, actions.ActionEdit:
+			summary.Files++
+		case actions.ActionBash:
+			summary.Commands++
+		case actions.ActionTask, actions.ActionAgent:
+			summary.Agents++
+		case actions.ActionRead:
+			summary.Reads++
+		case actions.ActionWebFetch:
+			summary.Fetches++
+		case actions.ActionGrep, actions.ActionGlob:
+			summary.Searches++
+		}
+	}
+	return summary
+}
+
+func (inst *Instance) GetUsage() usage.TokenUsage {
+	if inst.Usage == nil {
+		return usage.TokenUsage{}
+	}
+	return inst.Usage.Snapshot()
+}
+
+func (inst *Instance) GetEstimatedCost() float64 {
+	if inst.Usage == nil {
+		return 0
+	}
+	return inst.Usage.GetEstimatedCost(inst.Model)
+}
+
+func (inst *Instance) GetUsageWithCost() string {
+	if inst.Usage == nil {
+		return ""
+	}
+	return inst.Usage.CompactWithCost(inst.Model)
+}
+
+// SetBudget sets the budget limits for this instance
+func (inst *Instance) SetBudget(tokens int64, usd float64) {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	inst.BudgetTokens = tokens
+	inst.BudgetUSD = usd
+}
+
+// GetBudget returns the budget limits for this instance
+func (inst *Instance) GetBudget() (tokens int64, usd float64) {
+	inst.mu.RLock()
+	defer inst.mu.RUnlock()
+	return inst.BudgetTokens, inst.BudgetUSD
+}
+
+// HasBudget returns true if a budget is set for this instance
+func (inst *Instance) HasBudget() bool {
+	inst.mu.RLock()
+	defer inst.mu.RUnlock()
+	return inst.BudgetTokens > 0 || inst.BudgetUSD > 0
+}
+
+// CheckBudget checks current usage against budget and returns status
+// Returns: percent used, at threshold (>=90%), over budget
+func (inst *Instance) CheckBudget() (percent float64, atThreshold bool, overBudget bool) {
+	inst.mu.RLock()
+	defer inst.mu.RUnlock()
+
+	if inst.Usage == nil {
+		return 0, false, false
+	}
+
+	snapshot := inst.Usage.Snapshot()
+
+	if inst.BudgetTokens > 0 {
+		percent = float64(snapshot.TotalTokens) / float64(inst.BudgetTokens) * 100
+		atThreshold = percent >= 90
+		overBudget = snapshot.TotalTokens >= inst.BudgetTokens
+		return
+	}
+
+	if inst.BudgetUSD > 0 {
+		cost := snapshot.CostUSD
+		if cost == 0 {
+			cost = inst.Usage.GetEstimatedCost(inst.Model)
+		}
+		percent = cost / inst.BudgetUSD * 100
+		atThreshold = percent >= 90
+		overBudget = cost >= inst.BudgetUSD
+		return
+	}
+
+	return 0, false, false
+}
+
+// IsBudgetPaused returns whether instance is paused due to budget
+func (inst *Instance) IsBudgetPaused() bool {
+	inst.mu.RLock()
+	defer inst.mu.RUnlock()
+	return inst.BudgetPaused
+}
+
+// SetBudgetPaused sets whether the instance is paused due to budget
+func (inst *Instance) SetBudgetPaused(paused bool) {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	inst.BudgetPaused = paused
+}
+
+// SetBudgetThreshold marks that the instance has reached budget threshold
+func (inst *Instance) SetBudgetThreshold(reached bool) {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	inst.BudgetThreshold = reached
+}
+
+// IsBudgetThresholdReached returns whether threshold has been reached
+func (inst *Instance) IsBudgetThresholdReached() bool {
+	inst.mu.RLock()
+	defer inst.mu.RUnlock()
+	return inst.BudgetThreshold
+}
+
 func (inst *Instance) AppendOutput(line string) {
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
@@ -540,6 +849,10 @@ func (inst *Instance) ClearInstance(featureID string) {
 	inst.output = nil
 	inst.TestResults = &TestResults{}
 	inst.Error = ""
+	inst.Actions = nil
+	if inst.Usage != nil {
+		inst.Usage.Reset()
+	}
 }
 
 func (m *Manager) GetInstance(featureID string) *Instance {
@@ -611,4 +924,136 @@ func (m *Manager) CanStartMore() bool {
 		}
 	}
 	return running < m.config.MaxConcurrent
+}
+
+func (m *Manager) GetTotalUsage() usage.TokenUsage {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	total := usage.New()
+	for _, inst := range m.instances {
+		instUsage := inst.GetUsage()
+		total.Add(&instUsage)
+	}
+	return total.Snapshot()
+}
+
+func (m *Manager) GetTotalCost() float64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var totalCost float64
+	for _, inst := range m.instances {
+		totalCost += inst.GetEstimatedCost()
+	}
+	return totalCost
+}
+
+// SetGlobalBudget sets the global budget limits
+func (m *Manager) SetGlobalBudget(tokens int64, usd float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.globalBudgetTokens = tokens
+	m.globalBudgetUSD = usd
+}
+
+// GetGlobalBudget returns the global budget limits
+func (m *Manager) GetGlobalBudget() (tokens int64, usd float64) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.globalBudgetTokens, m.globalBudgetUSD
+}
+
+// HasGlobalBudget returns true if a global budget is set
+func (m *Manager) HasGlobalBudget() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.globalBudgetTokens > 0 || m.globalBudgetUSD > 0
+}
+
+// CheckGlobalBudget checks total usage against global budget
+// Returns: percent used, at threshold (>=90%), over budget
+func (m *Manager) CheckGlobalBudget() (percent float64, atThreshold bool, overBudget bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.globalBudgetTokens == 0 && m.globalBudgetUSD == 0 {
+		return 0, false, false
+	}
+
+	total := usage.New()
+	for _, inst := range m.instances {
+		instUsage := inst.GetUsage()
+		total.Add(&instUsage)
+	}
+	snapshot := total.Snapshot()
+
+	if m.globalBudgetTokens > 0 {
+		percent = float64(snapshot.TotalTokens) / float64(m.globalBudgetTokens) * 100
+		atThreshold = percent >= 90
+		overBudget = snapshot.TotalTokens >= m.globalBudgetTokens
+		return
+	}
+
+	if m.globalBudgetUSD > 0 {
+		var totalCost float64
+		for _, inst := range m.instances {
+			totalCost += inst.GetEstimatedCost()
+		}
+		percent = totalCost / m.globalBudgetUSD * 100
+		atThreshold = percent >= 90
+		overBudget = totalCost >= m.globalBudgetUSD
+		return
+	}
+
+	return 0, false, false
+}
+
+// AcknowledgeBudget marks the budget as acknowledged (user chose to continue)
+func (m *Manager) AcknowledgeBudget() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.budgetAcknowledged = true
+}
+
+// IsBudgetAcknowledged returns true if user has acknowledged budget warning
+func (m *Manager) IsBudgetAcknowledged() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.budgetAcknowledged
+}
+
+// ResetBudgetAcknowledgement resets the acknowledgement flag
+func (m *Manager) ResetBudgetAcknowledgement() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.budgetAcknowledged = false
+}
+
+// GetGlobalBudgetStatus returns a formatted budget status string
+func (m *Manager) GetGlobalBudgetStatus() string {
+	m.mu.RLock()
+	tokens := m.globalBudgetTokens
+	usd := m.globalBudgetUSD
+	m.mu.RUnlock()
+
+	if tokens == 0 && usd == 0 {
+		return ""
+	}
+
+	total := m.GetTotalUsage()
+	snapshot := total
+
+	if usd > 0 {
+		totalCost := m.GetTotalCost()
+		percent := totalCost / usd * 100
+		return fmt.Sprintf("$%.2f/$%.2f (%.0f%%)", totalCost, usd, percent)
+	}
+
+	if tokens > 0 {
+		percent := float64(snapshot.TotalTokens) / float64(tokens) * 100
+		return fmt.Sprintf("%s/%s (%.0f%%)", usage.FormatTokens(snapshot.TotalTokens), usage.FormatTokens(tokens), percent)
+	}
+
+	return ""
 }

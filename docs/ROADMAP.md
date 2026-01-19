@@ -24,42 +24,61 @@
 - [x] Progress persistence across restarts (JSON format)
 - [x] Auto mode (S key) for hands-off execution
 
-## v0.3.0 - Intelligence (RLM Integration)
+## v0.3.0 - Workflow Enhancement ✓
+
+- [x] PRD directory structure (`PRD/` with numbered feature dirs)
+- [x] Manifest generation and parsing (`manifest.json`)
+- [x] Feature dependency resolution with cycle detection
+- [x] DAG-based execution ordering
+- [x] `ralph init <prd.md>` command
+- [x] `ralph status` command
+- [x] Autonomous single-feature execution (`ralph` with no args)
+- [x] Auto-archive PRD on completion
+- [x] Backward compatibility with legacy single-file mode
+
+## v0.4.0 - Intelligence (RLM Integration) ✓
 
 Inspired by [Recursive Language Models](https://arxiv.org/abs/2512.24601) research.
 
-### Recursive Task Decomposition
-- [ ] Features can spawn sub-features dynamically
-- [ ] Hierarchical progress tree (parent → child tasks)
-- [ ] Bounded context per recursion level
-- [ ] Result summarization between layers
+### TUI Enhancements
+- [x] Inspect view auto-scroll (follows new output like `tail -f`)
+- [x] Significant action extraction (files, commands, agents, fetches)
+- [x] Action timeline view (toggle with 'a' key)
+- [x] Compact action summary in feature list
 
-### Smart Resource Management
-- [ ] Token usage tracking per instance
-- [ ] Cumulative token/cost accounting across recursion tree
-- [ ] Usage budget in PRD (`Budget: $5.00` or `Tokens: 100000`)
-- [ ] Pause when approaching Claude Code subscription limits
-- [ ] Wait for limit replenishment or switch to API (configurable)
+### Token & Cost Tracking
+- [x] Token usage parsing from stream-json
+- [x] Usage display in TUI (compact and detailed)
+- [x] Cost estimation per model
+- [x] Budget limits in PRD (`Budget: $5.00` or `Tokens: 100000`)
+- [x] Budget pause at 90% threshold with user confirmation
+
+### Recursive Task Decomposition
+- [x] Features can spawn sub-features dynamically
+- [x] Hierarchical progress tree (parent → child tasks)
+- [x] Bounded context per recursion level
+- [x] Result summarization between layers
+- [x] Sub-feature data model with parent/child relationships
 
 ### Dynamic Model Selection
-- [ ] `Model: auto` - start cheap, escalate on complexity
-- [ ] Haiku for simple subtasks, Opus for complex decisions
-- [ ] Model escalation triggers (errors, complexity detection)
+- [x] `Model: auto` - start cheap, escalate on complexity
+- [x] Haiku for simple/leaf tasks, Sonnet/Opus for complex decisions
+- [x] Model escalation triggers (errors, complexity detection)
+- [x] Model switch tracking and display
 
 ### Fault Tolerance
-- [ ] Subtask failures isolated from parent
-- [ ] Automatic retry with adjusted parameters
-- [ ] Fallback strategies (simplify task, use different model)
+- [x] Child failures isolated from parent (configurable isolation level)
+- [x] Automatic retry with adjusted parameters
+- [x] Model escalation before retry
+- [x] Adjustment history tracking
 
-## v0.4.0 - Orchestration
+## v0.5.0 - Extended Orchestration
 
-- [ ] Dependency detection between features
-- [ ] Smart execution ordering (DAG-based)
 - [ ] Context sharing between sibling instances
 - [ ] Memory of previous runs
 - [ ] Parallel subtask execution with result merging
 
-## v0.5.0 - Interactive Features
+## v0.6.0 - Interactive Features
 
 - [ ] Pause/resume running features
 - [ ] Add tasks during execution
@@ -67,7 +86,7 @@ Inspired by [Recursive Language Models](https://arxiv.org/abs/2512.24601) resear
 - [ ] Manual interjection points
 - [ ] Output search
 
-## v0.6.0 - Polish
+## v0.7.0 - Polish
 
 - [ ] Configurable themes
 - [ ] Keyboard shortcut customization

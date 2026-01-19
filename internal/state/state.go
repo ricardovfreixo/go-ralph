@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -27,16 +28,47 @@ type ProgressConfig struct {
 }
 
 type FeatureState struct {
-	ID          string                `json:"id"`
-	Title       string                `json:"title,omitempty"`
-	Status      string                `json:"status"`
-	StartedAt   *time.Time            `json:"started_at,omitempty"`
-	CompletedAt *time.Time            `json:"completed_at,omitempty"`
-	Attempts    int                   `json:"attempts"`
-	MaxRetries  int                   `json:"max_retries"`
-	LastError   string                `json:"last_error,omitempty"`
-	Tasks       map[string]*TaskState `json:"tasks"`
-	TestResults *TestResultState      `json:"test_results,omitempty"`
+	ID             string                `json:"id"`
+	Title          string                `json:"title,omitempty"`
+	Status         string                `json:"status"`
+	StartedAt      *time.Time            `json:"started_at,omitempty"`
+	CompletedAt    *time.Time            `json:"completed_at,omitempty"`
+	Attempts       int                   `json:"attempts"`
+	MaxRetries     int                   `json:"max_retries"`
+	LastError      string                `json:"last_error,omitempty"`
+	Tasks          map[string]*TaskState `json:"tasks"`
+	TestResults    *TestResultState      `json:"test_results,omitempty"`
+	ParentID       string                `json:"parent_id,omitempty"`
+	Depth          int                   `json:"depth,omitempty"`
+	CurrentModel   string                `json:"current_model,omitempty"`
+	ModelSwitches  []ModelSwitchState    `json:"model_switches,omitempty"`
+	IsolationLevel string                `json:"isolation_level,omitempty"`
+	FailureReason  string                `json:"failure_reason,omitempty"`
+	FailedChildren []string              `json:"failed_children,omitempty"`
+	Skipped        bool                  `json:"skipped,omitempty"`
+	SkipReason     string                `json:"skip_reason,omitempty"`
+	Adjustments    []AdjustmentState     `json:"adjustments,omitempty"`
+	MaxAdjustments int                   `json:"max_adjustments,omitempty"`
+	OriginalModel  string                `json:"original_model,omitempty"`
+	Simplified     bool                  `json:"simplified,omitempty"`
+}
+
+type AdjustmentState struct {
+	Timestamp  time.Time `json:"timestamp"`
+	Type       string    `json:"type"`
+	Reason     string    `json:"reason"`
+	FromValue  string    `json:"from_value,omitempty"`
+	ToValue    string    `json:"to_value,omitempty"`
+	Details    string    `json:"details,omitempty"`
+	AttemptNum int       `json:"attempt_num"`
+}
+
+type ModelSwitchState struct {
+	Timestamp time.Time `json:"timestamp"`
+	FromModel string    `json:"from_model"`
+	ToModel   string    `json:"to_model"`
+	Reason    string    `json:"reason"`
+	Details   string    `json:"details,omitempty"`
 }
 
 type TaskState struct {
@@ -395,4 +427,464 @@ func (p *Progress) SetConfig(maxRetries, maxConcurrent int) {
 	defer p.mu.Unlock()
 	p.Config.MaxRetries = maxRetries
 	p.Config.MaxConcurrent = maxConcurrent
+}
+
+func (p *Progress) SetFeatureParent(id string, parentID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.Features[id] == nil {
+		p.Features[id] = &FeatureState{
+			ID:    id,
+			Tasks: make(map[string]*TaskState),
+		}
+	}
+	p.Features[id].ParentID = parentID
+
+	if parent := p.Features[parentID]; parent != nil {
+		p.Features[id].Depth = parent.Depth + 1
+	}
+	p.UpdatedAt = time.Now()
+}
+
+func (p *Progress) GetFeatureParent(id string) string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		return f.ParentID
+	}
+	return ""
+}
+
+func (p *Progress) GetChildFeatures(parentID string) []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	var children []string
+	for id, feature := range p.Features {
+		if feature.ParentID == parentID {
+			children = append(children, id)
+		}
+	}
+	return children
+}
+
+func (p *Progress) SetCurrentModel(id string, model string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.Features[id] == nil {
+		p.Features[id] = &FeatureState{
+			ID:    id,
+			Tasks: make(map[string]*TaskState),
+		}
+	}
+	p.Features[id].CurrentModel = model
+	p.UpdatedAt = time.Now()
+}
+
+func (p *Progress) GetCurrentModel(id string) string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		return f.CurrentModel
+	}
+	return ""
+}
+
+func (p *Progress) AddModelSwitch(id string, fromModel, toModel, reason, details string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.Features[id] == nil {
+		p.Features[id] = &FeatureState{
+			ID:    id,
+			Tasks: make(map[string]*TaskState),
+		}
+	}
+
+	sw := ModelSwitchState{
+		Timestamp: time.Now(),
+		FromModel: fromModel,
+		ToModel:   toModel,
+		Reason:    reason,
+		Details:   details,
+	}
+	p.Features[id].ModelSwitches = append(p.Features[id].ModelSwitches, sw)
+	p.Features[id].CurrentModel = toModel
+	p.UpdatedAt = time.Now()
+}
+
+func (p *Progress) GetModelSwitches(id string) []ModelSwitchState {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		result := make([]ModelSwitchState, len(f.ModelSwitches))
+		copy(result, f.ModelSwitches)
+		return result
+	}
+	return nil
+}
+
+// SetIsolationLevel sets the isolation level for a feature
+func (p *Progress) SetIsolationLevel(id string, level string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.Features[id] == nil {
+		p.Features[id] = &FeatureState{
+			ID:    id,
+			Tasks: make(map[string]*TaskState),
+		}
+	}
+	p.Features[id].IsolationLevel = level
+	p.UpdatedAt = time.Now()
+}
+
+// GetIsolationLevel returns the isolation level for a feature
+func (p *Progress) GetIsolationLevel(id string) string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		return f.IsolationLevel
+	}
+	return ""
+}
+
+// SetFailureReason sets the failure reason for a feature
+func (p *Progress) SetFailureReason(id string, reason string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.Features[id] == nil {
+		p.Features[id] = &FeatureState{
+			ID:    id,
+			Tasks: make(map[string]*TaskState),
+		}
+	}
+	p.Features[id].FailureReason = reason
+	p.UpdatedAt = time.Now()
+}
+
+// GetFailureReason returns the failure reason for a feature
+func (p *Progress) GetFailureReason(id string) string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		return f.FailureReason
+	}
+	return ""
+}
+
+// AddFailedChild records a failed child for a parent feature
+func (p *Progress) AddFailedChild(parentID, childID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.Features[parentID] == nil {
+		p.Features[parentID] = &FeatureState{
+			ID:    parentID,
+			Tasks: make(map[string]*TaskState),
+		}
+	}
+	for _, id := range p.Features[parentID].FailedChildren {
+		if id == childID {
+			return // Already recorded
+		}
+	}
+	p.Features[parentID].FailedChildren = append(p.Features[parentID].FailedChildren, childID)
+	p.UpdatedAt = time.Now()
+}
+
+// GetFailedChildren returns the list of failed children for a feature
+func (p *Progress) GetFailedChildren(id string) []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		result := make([]string, len(f.FailedChildren))
+		copy(result, f.FailedChildren)
+		return result
+	}
+	return nil
+}
+
+// HasFailedChildren returns true if a feature has any failed children
+func (p *Progress) HasFailedChildren(id string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		return len(f.FailedChildren) > 0
+	}
+	return false
+}
+
+// SkipFeature marks a feature as skipped with a reason
+func (p *Progress) SkipFeature(id string, reason string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.Features[id] == nil {
+		p.Features[id] = &FeatureState{
+			ID:    id,
+			Tasks: make(map[string]*TaskState),
+		}
+	}
+	p.Features[id].Status = "skipped"
+	p.Features[id].Skipped = true
+	p.Features[id].SkipReason = reason
+	now := time.Now()
+	p.Features[id].CompletedAt = &now
+	p.UpdatedAt = time.Now()
+}
+
+// IsSkipped returns true if a feature was skipped
+func (p *Progress) IsSkipped(id string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		return f.Skipped
+	}
+	return false
+}
+
+// GetSkipReason returns the skip reason for a feature
+func (p *Progress) GetSkipReason(id string) string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		return f.SkipReason
+	}
+	return ""
+}
+
+// ClearFailure clears the failure state for a feature (used when retrying)
+func (p *Progress) ClearFailure(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if f := p.Features[id]; f != nil {
+		f.LastError = ""
+		f.FailureReason = ""
+		f.FailedChildren = nil
+		f.Skipped = false
+		f.SkipReason = ""
+	}
+	p.UpdatedAt = time.Now()
+}
+
+// CanChildRetry returns true if a child feature can be retried
+func (p *Progress) CanChildRetry(childID, parentID string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	child := p.Features[childID]
+	if child == nil {
+		return true
+	}
+
+	maxRetries := child.MaxRetries
+	if maxRetries == 0 {
+		maxRetries = p.Config.MaxRetries
+	}
+
+	return child.Attempts < maxRetries
+}
+
+// AddAdjustment records an adjustment made during retry
+func (p *Progress) AddAdjustment(id string, adj AdjustmentState) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.Features[id] == nil {
+		p.Features[id] = &FeatureState{
+			ID:    id,
+			Tasks: make(map[string]*TaskState),
+		}
+	}
+
+	adj.Timestamp = time.Now()
+	p.Features[id].Adjustments = append(p.Features[id].Adjustments, adj)
+	p.UpdatedAt = time.Now()
+}
+
+// GetAdjustments returns the adjustments made for a feature
+func (p *Progress) GetAdjustments(id string) []AdjustmentState {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		result := make([]AdjustmentState, len(f.Adjustments))
+		copy(result, f.Adjustments)
+		return result
+	}
+	return nil
+}
+
+// GetAdjustmentCount returns the number of adjustments for a feature
+func (p *Progress) GetAdjustmentCount(id string) int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		return len(f.Adjustments)
+	}
+	return 0
+}
+
+// SetMaxAdjustments sets the maximum adjustments allowed for a feature
+func (p *Progress) SetMaxAdjustments(id string, max int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.Features[id] == nil {
+		p.Features[id] = &FeatureState{
+			ID:    id,
+			Tasks: make(map[string]*TaskState),
+		}
+	}
+	p.Features[id].MaxAdjustments = max
+	p.UpdatedAt = time.Now()
+}
+
+// GetMaxAdjustments returns the max adjustments for a feature (default 3)
+func (p *Progress) GetMaxAdjustments(id string) int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil && f.MaxAdjustments > 0 {
+		return f.MaxAdjustments
+	}
+	return 3 // default
+}
+
+// CanAdjust returns true if more adjustments are allowed for a feature
+func (p *Progress) CanAdjust(id string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	f := p.Features[id]
+	if f == nil {
+		return true
+	}
+
+	maxAdj := f.MaxAdjustments
+	if maxAdj == 0 {
+		maxAdj = 3 // default
+	}
+
+	return len(f.Adjustments) < maxAdj
+}
+
+// SetOriginalModel sets the original model before any adjustments
+func (p *Progress) SetOriginalModel(id, model string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.Features[id] == nil {
+		p.Features[id] = &FeatureState{
+			ID:    id,
+			Tasks: make(map[string]*TaskState),
+		}
+	}
+	if p.Features[id].OriginalModel == "" {
+		p.Features[id].OriginalModel = model
+	}
+	p.UpdatedAt = time.Now()
+}
+
+// GetOriginalModel returns the original model for a feature
+func (p *Progress) GetOriginalModel(id string) string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		return f.OriginalModel
+	}
+	return ""
+}
+
+// SetSimplified marks that a feature's tasks were simplified
+func (p *Progress) SetSimplified(id string, simplified bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.Features[id] == nil {
+		p.Features[id] = &FeatureState{
+			ID:    id,
+			Tasks: make(map[string]*TaskState),
+		}
+	}
+	p.Features[id].Simplified = simplified
+	p.UpdatedAt = time.Now()
+}
+
+// IsSimplified returns whether a feature's tasks were simplified
+func (p *Progress) IsSimplified(id string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		return f.Simplified
+	}
+	return false
+}
+
+// LastAdjustment returns the most recent adjustment for a feature
+func (p *Progress) LastAdjustment(id string) *AdjustmentState {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil && len(f.Adjustments) > 0 {
+		adj := f.Adjustments[len(f.Adjustments)-1]
+		return &adj
+	}
+	return nil
+}
+
+// HasModelEscalation returns true if model was escalated during retries
+func (p *Progress) HasModelEscalation(id string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if f := p.Features[id]; f != nil {
+		for _, adj := range f.Adjustments {
+			if adj.Type == "model_escalation" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// GetAdjustmentSummary returns a summary string of adjustments
+func (p *Progress) GetAdjustmentSummary(id string) string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	f := p.Features[id]
+	if f == nil || len(f.Adjustments) == 0 {
+		return ""
+	}
+
+	var parts []string
+	for _, adj := range f.Adjustments {
+		switch adj.Type {
+		case "model_escalation":
+			parts = append(parts, fmt.Sprintf("[%d] Model: %s→%s", adj.AttemptNum, adj.FromValue, adj.ToValue))
+		case "task_simplify":
+			parts = append(parts, fmt.Sprintf("[%d] Simplified", adj.AttemptNum))
+		default:
+			parts = append(parts, fmt.Sprintf("[%d] %s", adj.AttemptNum, adj.Type))
+		}
+	}
+	return strings.Join(parts, " | ")
 }

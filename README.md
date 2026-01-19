@@ -28,7 +28,7 @@ Inspired by [Anthropic's Ralph Loop](https://github.com/anthropics/claude-plugin
 
 ```bash
 # Download latest
-curl -L https://github.com/ricardovfreixo/go-ralph/raw/main/dist/v0.2.4/linux-amd64/ralph -o ralph
+curl -L https://github.com/ricardovfreixo/go-ralph/raw/main/dist/v0.4.0/linux-amd64/ralph -o ralph
 chmod +x ralph
 sudo mv ralph /usr/local/bin/  # or ~/.local/bin/
 ```
@@ -69,8 +69,10 @@ ralph PRD.md
 
 | Command | Description |
 |---------|-------------|
-| `ralph init` | Initialize new project with PRD template |
+| `ralph init <prd.md>` | Initialize PRD directory structure from a PRD file |
 | `ralph <file>` | Run TUI with specified PRD file |
+| `ralph` | Autonomous mode - run next pending feature and exit |
+| `ralph status` | Show current PRD progress |
 | `ralph help` | Show help |
 | `ralph --version` | Show version |
 
@@ -82,13 +84,15 @@ ralph PRD.md
 |-----|--------|
 | `j/k` | Navigate features |
 | `Enter` | Inspect feature output |
+| `Space` | Expand/collapse child features |
 | `s` | Start feature |
 | `S` | Start ALL (auto mode) |
 | `r` | Retry failed feature |
 | `R` | Reset feature |
-| `Ctrl+r` | Reset ALL features (deletes progress.md) |
+| `Ctrl+r` | Reset ALL features |
 | `x` | Stop feature |
 | `X` | Stop ALL |
+| `c` | Toggle cost display |
 | `?` | Help |
 | `q` | Quit (saves progress) |
 
@@ -96,8 +100,10 @@ ralph PRD.md
 
 | Key | Action |
 |-----|--------|
-| `j/k` | Scroll |
+| `j/k` | Scroll (disables auto-scroll) |
 | `g/G` | Top/bottom |
+| `f` | Follow mode (auto-scroll) |
+| `a` | Toggle action timeline |
 | `Esc` | Back |
 
 ## PRD Format
@@ -107,12 +113,15 @@ ralph PRD.md
 
 Project context and tech stack.
 
+Budget: $10.00
+
 ## Feature 1: Name
 
 Description of the feature.
 
 Execution: sequential
-Model: sonnet
+Model: auto
+Depends: 01, 02
 
 - [ ] Task one
 - [ ] Task two
@@ -125,22 +134,32 @@ Acceptance: What must be true when done
 - `#` (H1): Project context (shared with all features)
 - `##` (H2): Individual features (each runs in separate Claude instance)
 - `Execution`: `sequential` or `parallel`
-- `Model`: `haiku`, `sonnet`, or `opus`
+- `Model`: `haiku`, `sonnet`, `opus`, or `auto` (starts cheap, escalates on complexity)
+- `Depends`: Feature dependencies (IDs or titles)
+- `Budget`: Cost limit (`$5.00`) or token limit (`Tokens: 100000`)
+- `Isolation`: `strict` or `lenient` (for child feature failures)
 - Task lists: Checkboxes for items to implement
 - `Acceptance:` Criteria for completion
 
 ## Project Files
 
-All generated files are created in the same directory as the PRD file. This directory becomes the working directory for Claude Code instances.
+**Legacy mode** (single PRD file):
 
 | File | Purpose |
 |------|---------|
 | `PRD.md` | Project requirements (input) |
 | `progress.json` | State tracking (auto-generated) |
-| `progress.md` | Context notes for subsequent features (written by Claude) |
-| `input_design/` | Design assets |
-| `.claude/CLAUDE.md` | PRD authoring guide for Claude |
-| `.ralph/` | Logs and ralph runtime data (git-ignored) |
+| `.ralph/` | Logs and runtime data (git-ignored) |
+
+**Workflow mode** (after `ralph init`):
+
+| File | Purpose |
+|------|---------|
+| `PRD/` | Working directory (git-ignored) |
+| `PRD/manifest.json` | Feature status and dependencies |
+| `PRD/01-feature-name/` | Feature directories |
+| `PRD/01-feature-name/feature.md` | Extracted feature spec |
+| `.ralph/` | Logs and runtime data (git-ignored) |
 
 To monitor ralph activity in real-time:
 ```bash

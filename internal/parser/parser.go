@@ -6,14 +6,18 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 type PRD struct {
-	Title      string
-	Context    string
-	Features   []Feature
-	RawContent string
+	Title         string
+	Context       string
+	Features      []Feature
+	RawContent    string
+	BudgetTokens  int64   // Global token budget limit (0 = no limit)
+	BudgetUSD     float64 // Global USD budget limit (0 = no limit)
+	ContextBudget int64   // Global context budget (0 = use default)
 }
 
 type Feature struct {
@@ -25,6 +29,11 @@ type Feature struct {
 	Tasks              []Task
 	AcceptanceCriteria []string
 	RawContent         string
+	DependsOn          []string
+	BudgetTokens       int64   // Token budget limit (0 = no limit)
+	BudgetUSD          float64 // USD budget limit (0 = no limit)
+	ContextBudget      int64   // Context budget for recursion (0 = use default)
+	IsolationLevel     string  // "strict" or "lenient" (default: lenient)
 }
 
 type Task struct {
@@ -34,11 +43,16 @@ type Task struct {
 }
 
 var (
-	h1Regex       = regexp.MustCompile(`^#\s+(.+)$`)
-	h2Regex       = regexp.MustCompile(`^##\s+(.+)$`)
-	taskRegex     = regexp.MustCompile(`^[-*]\s+\[([ xX])\]\s+(.+)$`)
-	metaRegex     = regexp.MustCompile(`(?i)^(execution|mode|model|run):\s*(.+)$`)
-	criteriaRegex = regexp.MustCompile(`(?i)^(acceptance|criteria|test):\s*(.+)$`)
+	h1Regex         = regexp.MustCompile(`^#\s+(.+)$`)
+	h2Regex         = regexp.MustCompile(`^##\s+(.+)$`)
+	taskRegex       = regexp.MustCompile(`^[-*]\s+\[([ xX])\]\s+(.+)$`)
+	metaRegex       = regexp.MustCompile(`(?i)^(execution|mode|model|run):\s*(.+)$`)
+	criteriaRegex   = regexp.MustCompile(`(?i)^(acceptance|criteria|test):\s*(.+)$`)
+	dependsRegex    = regexp.MustCompile(`(?i)^depends:\s*(.+)$`)
+	budgetRegex     = regexp.MustCompile(`(?i)^budget:\s*(.+)$`)
+	tokensRegex     = regexp.MustCompile(`(?i)^tokens:\s*(.+)$`)
+	contextRegex    = regexp.MustCompile(`(?i)^context:\s*(.+)$`)
+	isolationRegex  = regexp.MustCompile(`(?i)^isolation:\s*(.+)$`)
 )
 
 func ParsePRD(path string) (*PRD, error) {
@@ -59,6 +73,7 @@ func ParsePRDContent(content string) (*PRD, error) {
 	var currentFeature *Feature
 	var currentSection string
 	var descriptionLines []string
+	var rawContentLines []string
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -72,6 +87,7 @@ func ParsePRDContent(content string) (*PRD, error) {
 		if matches := h2Regex.FindStringSubmatch(line); matches != nil {
 			if currentFeature != nil {
 				currentFeature.Description = strings.TrimSpace(strings.Join(descriptionLines, "\n"))
+				currentFeature.RawContent = strings.TrimSpace(strings.Join(rawContentLines, "\n"))
 				prd.Features = append(prd.Features, *currentFeature)
 			}
 
@@ -83,10 +99,25 @@ func ParsePRDContent(content string) (*PRD, error) {
 			}
 			currentSection = "feature"
 			descriptionLines = nil
+			rawContentLines = []string{line}
 			continue
 		}
 
 		if currentSection == "context" && prd.Title != "" {
+			// Check for global budget in context/header section
+			if matches := budgetRegex.FindStringSubmatch(line); matches != nil {
+				tokens, usd := parseBudgetValue(matches[1])
+				prd.BudgetTokens = tokens
+				prd.BudgetUSD = usd
+			}
+			if matches := tokensRegex.FindStringSubmatch(line); matches != nil {
+				tokens, _ := parseBudgetValue(matches[1])
+				prd.BudgetTokens = tokens
+			}
+			// Check for global context budget
+			if matches := contextRegex.FindStringSubmatch(line); matches != nil {
+				prd.ContextBudget = parseContextValue(matches[1])
+			}
 			prd.Context += line + "\n"
 			continue
 		}
@@ -102,6 +133,7 @@ func ParsePRDContent(content string) (*PRD, error) {
 				Completed:   matches[1] != " ",
 			}
 			currentFeature.Tasks = append(currentFeature.Tasks, task)
+			rawContentLines = append(rawContentLines, line)
 			continue
 		}
 
@@ -115,15 +147,61 @@ func ParsePRDContent(content string) (*PRD, error) {
 					currentFeature.ExecutionMode = "sequential"
 				}
 			case "model":
-				if value == "opus" || value == "haiku" || value == "sonnet" {
+				if value == "opus" || value == "haiku" || value == "sonnet" || value == "auto" {
 					currentFeature.Model = value
 				}
 			}
+			rawContentLines = append(rawContentLines, line)
 			continue
 		}
 
 		if matches := criteriaRegex.FindStringSubmatch(line); matches != nil {
 			currentFeature.AcceptanceCriteria = append(currentFeature.AcceptanceCriteria, matches[2])
+			rawContentLines = append(rawContentLines, line)
+			continue
+		}
+
+		if matches := dependsRegex.FindStringSubmatch(line); matches != nil {
+			depStr := strings.TrimSpace(matches[1])
+			for _, dep := range strings.Split(depStr, ",") {
+				dep = strings.TrimSpace(dep)
+				if dep != "" {
+					currentFeature.DependsOn = append(currentFeature.DependsOn, dep)
+				}
+			}
+			rawContentLines = append(rawContentLines, line)
+			continue
+		}
+
+		if matches := budgetRegex.FindStringSubmatch(line); matches != nil {
+			tokens, usd := parseBudgetValue(matches[1])
+			currentFeature.BudgetTokens = tokens
+			currentFeature.BudgetUSD = usd
+			rawContentLines = append(rawContentLines, line)
+			continue
+		}
+
+		if matches := tokensRegex.FindStringSubmatch(line); matches != nil {
+			tokens, _ := parseBudgetValue(matches[1])
+			currentFeature.BudgetTokens = tokens
+			rawContentLines = append(rawContentLines, line)
+			continue
+		}
+
+		// Check for per-feature context budget override
+		if matches := contextRegex.FindStringSubmatch(line); matches != nil {
+			currentFeature.ContextBudget = parseContextValue(matches[1])
+			rawContentLines = append(rawContentLines, line)
+			continue
+		}
+
+		// Check for isolation level
+		if matches := isolationRegex.FindStringSubmatch(line); matches != nil {
+			level := strings.ToLower(strings.TrimSpace(matches[1]))
+			if level == "strict" || level == "lenient" {
+				currentFeature.IsolationLevel = level
+			}
+			rawContentLines = append(rawContentLines, line)
 			continue
 		}
 
@@ -134,14 +212,17 @@ func ParsePRDContent(content string) (*PRD, error) {
 			} else {
 				descriptionLines = append(descriptionLines, line)
 			}
+			rawContentLines = append(rawContentLines, line)
 			continue
 		}
 
 		descriptionLines = append(descriptionLines, line)
+		rawContentLines = append(rawContentLines, line)
 	}
 
 	if currentFeature != nil {
 		currentFeature.Description = strings.TrimSpace(strings.Join(descriptionLines, "\n"))
+		currentFeature.RawContent = strings.TrimSpace(strings.Join(rawContentLines, "\n"))
 		prd.Features = append(prd.Features, *currentFeature)
 	}
 
@@ -215,4 +296,79 @@ func (f *Feature) ToPromptWithProgress(context string, progressContent string) s
 	sb.WriteString("   - Do NOT summarize or compact existing content - append new notes\n")
 
 	return sb.String()
+}
+
+// parseBudgetValue parses a budget value string and returns tokens and USD amounts
+// Supports formats: $5.00, 10000, 10k, 1.5M, 100k tokens
+func parseBudgetValue(value string) (tokens int64, usd float64) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, 0
+	}
+
+	// Dollar format: $5.00 or $5
+	if strings.HasPrefix(value, "$") {
+		val, err := strconv.ParseFloat(strings.TrimPrefix(value, "$"), 64)
+		if err == nil && val > 0 {
+			return 0, val
+		}
+		return 0, 0
+	}
+
+	// Remove optional "tokens" suffix
+	value = strings.TrimSuffix(strings.ToLower(value), " tokens")
+	value = strings.TrimSuffix(value, " token")
+	value = strings.TrimSpace(value)
+
+	// Check for k/M suffix
+	multiplier := 1.0
+	if strings.HasSuffix(strings.ToLower(value), "k") {
+		multiplier = 1000
+		value = value[:len(value)-1]
+	} else if strings.HasSuffix(strings.ToLower(value), "m") {
+		multiplier = 1000000
+		value = value[:len(value)-1]
+	}
+
+	val, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, 0
+	}
+
+	// If value has decimal and no suffix and is small, treat as USD
+	if multiplier == 1 && strings.Contains(value, ".") && val < 1000 {
+		return 0, val
+	}
+
+	return int64(val * multiplier), 0
+}
+
+// parseContextValue parses a context budget value string
+// Supports formats: 50000, 50k, 1.5M, 100k tokens
+func parseContextValue(value string) int64 {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+
+	// Remove optional "tokens" suffix
+	value = strings.TrimSuffix(strings.ToLower(value), " tokens")
+	value = strings.TrimSuffix(value, " token")
+	value = strings.TrimSpace(value)
+
+	multiplier := 1.0
+	if strings.HasSuffix(strings.ToLower(value), "k") {
+		multiplier = 1000
+		value = value[:len(value)-1]
+	} else if strings.HasSuffix(strings.ToLower(value), "m") {
+		multiplier = 1000000
+		value = value[:len(value)-1]
+	}
+
+	val, err := strconv.ParseFloat(value, 64)
+	if err != nil || val <= 0 {
+		return 0
+	}
+
+	return int64(val * multiplier)
 }
