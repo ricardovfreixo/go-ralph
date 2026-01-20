@@ -307,6 +307,11 @@ func (m Model) handleInstanceDone(msg instanceDoneMsg) (tea.Model, tea.Cmd) {
 		testResults := inst.GetTestResults()
 		m.state.SetTestResults(msg.featureID, testResults.Passed, testResults.Failed, testResults.Skipped, testResults.Output)
 
+		// Save token usage to state for persistence
+		u := inst.GetUsage()
+		cost := inst.GetEstimatedCost()
+		m.state.SetFeatureUsage(msg.featureID, u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens, cost)
+
 		if msg.status == "failed" {
 			errMsg := inst.GetError()
 			m.state.SetFeatureError(msg.featureID, errMsg)
@@ -581,6 +586,24 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// formatDuration formats a duration as human-readable string
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	h := d / time.Hour
+	d -= h * time.Hour
+	m := d / time.Minute
+	d -= m * time.Minute
+	s := d / time.Second
+
+	if h > 0 {
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm%ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
 }
 
 // getParentIsolationLevel returns the isolation level for a parent feature
@@ -1123,16 +1146,37 @@ func (m Model) renderMainView() string {
 		total, completed, running, failed, pending = m.state.GetSummary()
 	}
 
-	totalUsage := m.manager.GetTotalUsage()
+	// Aggregate tokens: state (completed) + manager (running)
+	runningUsage := m.manager.GetTotalUsage()
+	var stateIn, stateOut, stateCacheR, stateCacheW int64
+	if m.state != nil {
+		stateIn, stateOut, stateCacheR, stateCacheW = m.state.GetTotalTokens()
+	}
+	totalTokens := stateIn + stateOut + stateCacheR + stateCacheW + runningUsage.InputTokens + runningUsage.OutputTokens + runningUsage.CacheReadTokens + runningUsage.CacheWriteTokens
 	tokenUsageStr := ""
-	if !totalUsage.IsEmpty() {
-		tokenUsageStr = totalUsage.Compact()
+	if totalTokens > 0 {
+		tokenUsageStr = usage.FormatTokens(totalTokens)
 	}
 
+	// Aggregate cost: state (completed) + manager (running)
+	runningCost := m.manager.GetTotalCost()
+	var stateCost float64
+	if m.state != nil {
+		stateCost = m.state.GetTotalCost()
+	}
+	totalCost := stateCost + runningCost
 	totalCostStr := ""
-	totalCost := m.manager.GetTotalCost()
 	if totalCost > 0 {
 		totalCostStr = usage.FormatCost(totalCost)
+	}
+
+	// Calculate total elapsed time
+	elapsedStr := ""
+	if m.state != nil {
+		elapsed := m.state.GetTotalElapsed()
+		if elapsed > 0 {
+			elapsedStr = formatDuration(elapsed)
+		}
 	}
 
 	// Check budget status
@@ -1158,6 +1202,7 @@ func (m Model) renderMainView() string {
 		ShowCost:     m.showCost,
 		BudgetStatus: budgetStatus,
 		BudgetAlert:  budgetAlert,
+		ElapsedTime:  elapsedStr,
 	}
 
 	keybindings := "s: start • S: start all • r: retry • R: reset • x: stop • X: stop all • ?: help • q: quit"
@@ -1220,6 +1265,7 @@ func (m Model) buildTaskItems() []layout.TaskItem {
 		budgetAlert := false
 		model := ""
 		modelChanged := false
+		elapsedTime := ""
 
 		if m.state != nil {
 			if fs := m.state.GetFeature(id); fs != nil {
@@ -1227,6 +1273,9 @@ func (m Model) buildTaskItems() []layout.TaskItem {
 				attempts = fs.Attempts
 				model = fs.CurrentModel
 				modelChanged = len(fs.ModelSwitches) > 1
+			}
+			if elapsed := m.state.GetFeatureElapsed(id); elapsed > 0 {
+				elapsedTime = formatDuration(elapsed)
 			}
 		}
 		if inst := m.manager.GetInstance(id); inst != nil {
@@ -1272,6 +1321,7 @@ func (m Model) buildTaskItems() []layout.TaskItem {
 			BudgetAlert:   budgetAlert,
 			Model:         model,
 			ModelChanged:  modelChanged,
+			ElapsedTime:   elapsedTime,
 			ParentID:      parentID,
 			Children:      children,
 			Depth:         depth,
@@ -1330,16 +1380,37 @@ func (m Model) renderMainViewContent() string {
 		total, completed, running, failed, pending = m.state.GetSummary()
 	}
 
-	totalUsage := m.manager.GetTotalUsage()
+	// Aggregate tokens: state (completed) + manager (running)
+	runningUsage := m.manager.GetTotalUsage()
+	var stateIn, stateOut, stateCacheR, stateCacheW int64
+	if m.state != nil {
+		stateIn, stateOut, stateCacheR, stateCacheW = m.state.GetTotalTokens()
+	}
+	totalTokens := stateIn + stateOut + stateCacheR + stateCacheW + runningUsage.InputTokens + runningUsage.OutputTokens + runningUsage.CacheReadTokens + runningUsage.CacheWriteTokens
 	tokenUsageStr := ""
-	if !totalUsage.IsEmpty() {
-		tokenUsageStr = totalUsage.Compact()
+	if totalTokens > 0 {
+		tokenUsageStr = usage.FormatTokens(totalTokens)
 	}
 
+	// Aggregate cost: state (completed) + manager (running)
+	runningCost := m.manager.GetTotalCost()
+	var stateCost float64
+	if m.state != nil {
+		stateCost = m.state.GetTotalCost()
+	}
+	totalCost := stateCost + runningCost
 	totalCostStr := ""
-	totalCost := m.manager.GetTotalCost()
 	if totalCost > 0 {
 		totalCostStr = usage.FormatCost(totalCost)
+	}
+
+	// Calculate total elapsed time
+	elapsedStr := ""
+	if m.state != nil {
+		elapsed := m.state.GetTotalElapsed()
+		if elapsed > 0 {
+			elapsedStr = formatDuration(elapsed)
+		}
 	}
 
 	// Check budget status
@@ -1365,6 +1436,7 @@ func (m Model) renderMainViewContent() string {
 		ShowCost:     m.showCost,
 		BudgetStatus: budgetStatus,
 		BudgetAlert:  budgetAlert,
+		ElapsedTime:  elapsedStr,
 	}
 
 	keybindings := "s: start • S: start all • r: retry • R: reset • x: stop • X: stop all • ?: help • q: quit"

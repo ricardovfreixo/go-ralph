@@ -23,6 +23,7 @@ type HeaderData struct {
 	ShowCost     bool
 	BudgetStatus string
 	BudgetAlert  bool
+	ElapsedTime  string
 }
 
 type Header struct {
@@ -105,6 +106,10 @@ func (h *Header) buildSummary(data HeaderData) string {
 		summary += " " + data.TotalCost
 	} else if data.TokenUsage != "" {
 		summary += " " + data.TokenUsage
+	}
+
+	if data.ElapsedTime != "" {
+		summary += " " + data.ElapsedTime
 	}
 	return summary
 }

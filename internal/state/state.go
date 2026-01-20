@@ -51,6 +51,12 @@ type FeatureState struct {
 	MaxAdjustments int                   `json:"max_adjustments,omitempty"`
 	OriginalModel  string                `json:"original_model,omitempty"`
 	Simplified     bool                  `json:"simplified,omitempty"`
+	// Token and cost tracking
+	InputTokens   int64   `json:"input_tokens,omitempty"`
+	OutputTokens  int64   `json:"output_tokens,omitempty"`
+	CacheRead     int64   `json:"cache_read,omitempty"`
+	CacheWrite    int64   `json:"cache_write,omitempty"`
+	EstimatedCost float64 `json:"estimated_cost,omitempty"`
 }
 
 type AdjustmentState struct {
@@ -898,4 +904,74 @@ func (p *Progress) GetAdjustmentSummary(id string) string {
 		}
 	}
 	return strings.Join(parts, " | ")
+}
+
+// SetFeatureUsage saves token usage and cost for a feature
+func (p *Progress) SetFeatureUsage(id string, inputTokens, outputTokens, cacheRead, cacheWrite int64, cost float64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if f, ok := p.Features[id]; ok {
+		f.InputTokens = inputTokens
+		f.OutputTokens = outputTokens
+		f.CacheRead = cacheRead
+		f.CacheWrite = cacheWrite
+		f.EstimatedCost = cost
+	}
+}
+
+// GetTotalTokens returns aggregated token counts across all features
+func (p *Progress) GetTotalTokens() (input, output, cacheRead, cacheWrite int64) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	for _, f := range p.Features {
+		input += f.InputTokens
+		output += f.OutputTokens
+		cacheRead += f.CacheRead
+		cacheWrite += f.CacheWrite
+	}
+	return
+}
+
+// GetTotalCost returns aggregated cost across all features
+func (p *Progress) GetTotalCost() float64 {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	var total float64
+	for _, f := range p.Features {
+		total += f.EstimatedCost
+	}
+	return total
+}
+
+// GetTotalElapsed returns total time spent on completed features
+func (p *Progress) GetTotalElapsed() time.Duration {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	var total time.Duration
+	for _, f := range p.Features {
+		if f.StartedAt != nil && f.CompletedAt != nil {
+			total += f.CompletedAt.Sub(*f.StartedAt)
+		}
+	}
+	return total
+}
+
+// GetFeatureElapsed returns the elapsed time for a feature (completed or running)
+func (p *Progress) GetFeatureElapsed(id string) time.Duration {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	f, ok := p.Features[id]
+	if !ok || f.StartedAt == nil {
+		return 0
+	}
+
+	if f.CompletedAt != nil {
+		return f.CompletedAt.Sub(*f.StartedAt)
+	}
+	return time.Since(*f.StartedAt)
 }

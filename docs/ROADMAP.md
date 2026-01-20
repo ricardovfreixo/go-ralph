@@ -74,12 +74,25 @@ Inspired by [Recursive Language Models](https://arxiv.org/abs/2512.24601) resear
 
 ## v0.5.0 - Extended Orchestration
 
+### Aggregated Metrics
+- [ ] Total token usage for entire PRD (header display)
+- [ ] Total cost aggregation across all features
+- [ ] Elapsed time per feature (start → complete)
+- [ ] Total elapsed time for PRD execution
+
+### Context & Memory
 - [ ] Context sharing between sibling instances
 - [ ] Memory of previous runs
 - [ ] Parallel subtask execution with result merging
 
 ## v0.6.0 - Interactive Features
 
+### Task Control
+- [ ] Mark tasks as "done" (skip execution, count as complete)
+- [ ] Mark tasks as "skip" (exclude from execution entirely)
+- [ ] Persist done/skip state across restarts
+
+### Live Editing
 - [ ] Pause/resume running features
 - [ ] Add tasks during execution
 - [ ] Edit feature descriptions live
@@ -94,11 +107,33 @@ Inspired by [Recursive Language Models](https://arxiv.org/abs/2512.24601) resear
 - [ ] Webhook notifications (Slack, Discord)
 - [ ] Detailed cost breakdown report
 
+## v0.8.0 - Ralph Server
+
+Web-based project management interface.
+
+### Core
+- [ ] HTTP server with REST API
+- [ ] Project registration (directory → project mapping)
+- [ ] PRD file watching and auto-reload
+- [ ] WebSocket for live status updates
+
+### Dashboard
+- [ ] Multi-project overview
+- [ ] PRD viewer/editor
+- [ ] Feature execution controls (start/stop/retry)
+- [ ] Live output streaming
+- [ ] Token usage and cost analytics
+
+### Project Management
+- [ ] Add/remove features from PRD via UI
+- [ ] Reorder feature priority
+- [ ] Archive completed projects
+- [ ] Execution history and logs
+
 ## Future Ideas
 
-- Web UI alternative
-- Multi-project dashboard
 - Team collaboration features
 - CI/CD integration
 - Plugin system for custom validators
 - Paid API fallback when subscription exhausted
+- Mobile-friendly responsive UI

@@ -19,6 +19,7 @@ type TaskItem struct {
 	BudgetAlert   bool
 	Model         string // Current model (haiku, sonnet, opus)
 	ModelChanged  bool   // Whether model was escalated/de-escalated
+	ElapsedTime   string // Time taken (running or completed)
 
 	// Hierarchy fields
 	ParentID     string   // Empty for root features
@@ -330,6 +331,9 @@ func (t *TaskList) Render() string {
 		Foreground(lipgloss.Color("214")).
 		Bold(true)
 
+	elapsedStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("248"))
+
 	var lines []string
 	for i := startIdx; i < endIdx; i++ {
 		item := t.visibleItems[i]
@@ -393,11 +397,16 @@ func (t *TaskList) Render() string {
 			usageOrCostStyle = usageStyle
 		}
 
+		elapsedStr := ""
+		if item.ElapsedTime != "" {
+			elapsedStr = " " + item.ElapsedTime
+		}
+
 		treePrefixWidth := lipgloss.Width(treePrefix) + lipgloss.Width(expandIndicator)
-		titleMaxLen := maxWidth - 5 - treePrefixWidth - len(attemptStr) - len(actionStr) - lipgloss.Width(childSummaryStr) - len(modelStr) - lipgloss.Width(usageOrCostStr)
+		titleMaxLen := maxWidth - 5 - treePrefixWidth - len(attemptStr) - len(actionStr) - lipgloss.Width(childSummaryStr) - len(modelStr) - lipgloss.Width(usageOrCostStr) - len(elapsedStr)
 		displayTitle := t.truncateString(item.Title, titleMaxLen)
 
-		line := fmt.Sprintf(" %s%s%s  %s%s%s%s%s%s",
+		line := fmt.Sprintf(" %s%s%s  %s%s%s%s%s%s%s",
 			treeStyle.Render(treePrefix),
 			treeStyle.Render(expandIndicator),
 			statusStyle(item.Status).Render(icon),
@@ -406,7 +415,8 @@ func (t *TaskList) Render() string {
 			actionStyle.Render(actionStr),
 			childSummaryStyle.Render(childSummaryStr),
 			modelStyleToUse.Render(modelStr),
-			usageOrCostStyle.Render(usageOrCostStr))
+			usageOrCostStyle.Render(usageOrCostStr),
+			elapsedStyle.Render(elapsedStr))
 
 		if i == t.selected {
 			line = t.padToWidth(line, maxWidth)
