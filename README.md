@@ -1,4 +1,4 @@
-# ralph-go
+# ralph-go `v0.5.1`
 
 Autonomous development orchestrator that runs Claude Code instances to build applications from a PRD.
 
@@ -28,7 +28,7 @@ Inspired by [Anthropic's Ralph Loop](https://github.com/anthropics/claude-plugin
 
 ```bash
 # Download latest
-curl -L https://github.com/ricardovfreixo/go-ralph/raw/main/dist/v0.4.0/linux-amd64/ralph -o ralph
+curl -L https://github.com/ricardovfreixo/go-ralph/raw/main/dist/ralph -o ralph
 chmod +x ralph
 sudo mv ralph /usr/local/bin/  # or ~/.local/bin/
 ```

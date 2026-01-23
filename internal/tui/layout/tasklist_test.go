@@ -320,3 +320,86 @@ func TestTaskListRenderTokenUsage(t *testing.T) {
 		t.Error("should display token usage when provided")
 	}
 }
+
+func TestTaskListSetShowCost(t *testing.T) {
+	tl := NewTaskList()
+
+	if tl.ShowCost() {
+		t.Error("ShowCost should be false by default")
+	}
+
+	tl.SetShowCost(true)
+	if !tl.ShowCost() {
+		t.Error("ShowCost should be true after SetShowCost(true)")
+	}
+
+	tl.SetShowCost(false)
+	if tl.ShowCost() {
+		t.Error("ShowCost should be false after SetShowCost(false)")
+	}
+}
+
+func TestTaskListToggleCost(t *testing.T) {
+	tl := NewTaskList()
+
+	result := tl.ToggleCost()
+	if !result {
+		t.Error("ToggleCost should return true when toggling from false")
+	}
+	if !tl.ShowCost() {
+		t.Error("ShowCost should be true after first toggle")
+	}
+
+	result = tl.ToggleCost()
+	if result {
+		t.Error("ToggleCost should return false when toggling from true")
+	}
+	if tl.ShowCost() {
+		t.Error("ShowCost should be false after second toggle")
+	}
+}
+
+func TestTaskListRenderCostDisplay(t *testing.T) {
+	tl := NewTaskList()
+	tl.SetSize(100, 20)
+
+	items := []TaskItem{
+		{ID: "1", Title: "Feature 1", Status: "running", TokenUsage: "1.5k↓ 800↑", Cost: "$0.05"},
+		{ID: "2", Title: "Feature 2", Status: "completed", TokenUsage: "2.0k↓ 1.0k↑", Cost: "$0.10"},
+	}
+	tl.SetItems(items)
+
+	// By default, should show token usage, not cost
+	rendered := tl.Render()
+	if !strings.Contains(rendered, "1.5k↓ 800↑") {
+		t.Error("should display token usage by default")
+	}
+
+	// Enable cost display
+	tl.SetShowCost(true)
+	rendered = tl.Render()
+	if !strings.Contains(rendered, "$0.05") {
+		t.Error("should display cost when ShowCost is true")
+	}
+	if !strings.Contains(rendered, "$0.10") {
+		t.Error("should display cost for all items with cost")
+	}
+}
+
+func TestTaskListRenderCostWithEmptyCost(t *testing.T) {
+	tl := NewTaskList()
+	tl.SetSize(100, 20)
+	tl.SetShowCost(true)
+
+	items := []TaskItem{
+		{ID: "1", Title: "Feature 1", Status: "running", TokenUsage: "1.5k↓ 800↑", Cost: ""},
+		{ID: "2", Title: "Feature 2", Status: "completed", TokenUsage: "2.0k↓ 1.0k↑", Cost: "$0.10"},
+	}
+	tl.SetItems(items)
+	rendered := tl.Render()
+
+	// Should show cost for item with cost
+	if !strings.Contains(rendered, "$0.10") {
+		t.Error("should display cost when present")
+	}
+}

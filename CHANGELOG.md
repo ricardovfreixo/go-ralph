@@ -8,6 +8,15 @@ All notable changes to Ralph will be documented in this file.
 - **TUI auto mode now respects feature dependencies** - Previously, pressing "S" (Start ALL) would start features without checking the `Depends:` field, potentially running features before their dependencies completed. Now uses `manifest.GetNextRunnableFeature()` which only returns features whose dependencies have all completed.
 - **Manifest status synchronization** - Feature status changes (running/completed/failed) are now properly written to `manifest.json`, ensuring the dependency graph stays accurate during execution.
 
+### Docs
+- Added version badge to README
+- Fixed download URL to always fetch latest binary
+- Added release workflow to CLAUDE.md
+- Updated ROADMAP to mark v0.5.0 complete
+
+### Tests
+- Added layout component tests for cost/budget display
+
 ## [v0.5.0] - 2026-01-20
 
 ### Added

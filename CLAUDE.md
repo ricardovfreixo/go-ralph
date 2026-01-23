@@ -80,3 +80,12 @@ Acceptance: criteria
 - Keep TUI responsive - long operations in commands, not Update()
 - State mutations through Progress methods (thread-safe)
 - All runner output through channels, never blocking
+
+## Release Workflow
+
+Before pushing to GitHub, always update the dist:
+1. Build: `go build -o ralph ./cmd/ralph`
+2. Copy to dist: `cp ralph dist/ && mkdir -p dist/vX.Y.Z && cp ralph dist/vX.Y.Z/`
+3. Update version: `echo "vX.Y.Z" > dist/VERSION`
+4. Commit dist changes
+5. Push

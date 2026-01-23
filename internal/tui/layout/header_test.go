@@ -205,3 +205,129 @@ func TestBuildTopLine(t *testing.T) {
 		t.Error("top line should end with right content")
 	}
 }
+
+func TestHeaderRenderWithCostDisplay(t *testing.T) {
+	h := NewHeader()
+	h.SetWidth(100)
+
+	data := HeaderData{
+		Version:   "ralph v0.3.0",
+		Title:     "Feature Builder",
+		Total:     5,
+		Completed: 2,
+		TotalCost: "$0.50",
+		ShowCost:  true,
+	}
+
+	result := h.Render(data)
+
+	if !strings.Contains(result, "$0.50") {
+		t.Error("should contain cost when ShowCost is true and TotalCost is set")
+	}
+}
+
+func TestHeaderRenderCostTakesPriorityOverTokens(t *testing.T) {
+	h := NewHeader()
+	h.SetWidth(100)
+
+	data := HeaderData{
+		Version:    "ralph v0.3.0",
+		Title:      "Feature Builder",
+		Total:      5,
+		Completed:  2,
+		TokenUsage: "5.2k↓ 1.8k↑",
+		TotalCost:  "$0.50",
+		ShowCost:   true,
+	}
+
+	result := h.Render(data)
+
+	if !strings.Contains(result, "$0.50") {
+		t.Error("should contain cost when ShowCost is true")
+	}
+}
+
+func TestHeaderRenderNoCostWhenNotEnabled(t *testing.T) {
+	h := NewHeader()
+	h.SetWidth(100)
+
+	data := HeaderData{
+		Version:    "ralph v0.3.0",
+		Title:      "Feature Builder",
+		Total:      5,
+		Completed:  2,
+		TokenUsage: "5.2k↓ 1.8k↑",
+		TotalCost:  "$0.50",
+		ShowCost:   false,
+	}
+
+	result := h.Render(data)
+
+	// Should show tokens, not cost
+	if !strings.Contains(result, "5.2k↓ 1.8k↑") {
+		t.Error("should contain token usage when ShowCost is false")
+	}
+}
+
+func TestHeaderRenderWithBudgetStatus(t *testing.T) {
+	h := NewHeader()
+	h.SetWidth(120)
+
+	data := HeaderData{
+		Version:      "ralph v0.3.0",
+		Title:        "Feature Builder",
+		Total:        5,
+		Completed:    2,
+		TokenUsage:   "5.2k↓ 1.8k↑",
+		BudgetStatus: "$2.50/$5.00 (50%)",
+		BudgetAlert:  false,
+	}
+
+	result := h.Render(data)
+
+	if !strings.Contains(result, "$2.50/$5.00") {
+		t.Error("should contain budget status when provided")
+	}
+}
+
+func TestHeaderRenderBudgetTakesPriorityOverCost(t *testing.T) {
+	h := NewHeader()
+	h.SetWidth(120)
+
+	data := HeaderData{
+		Version:      "ralph v0.3.0",
+		Title:        "Feature Builder",
+		Total:        5,
+		Completed:    2,
+		TotalCost:    "$0.50",
+		ShowCost:     true,
+		BudgetStatus: "$2.50/$5.00 (50%)",
+	}
+
+	result := h.Render(data)
+
+	// Budget should take priority over cost
+	if !strings.Contains(result, "$2.50/$5.00") {
+		t.Error("should contain budget status which takes priority")
+	}
+}
+
+func TestHeaderRenderWithElapsedTime(t *testing.T) {
+	h := NewHeader()
+	h.SetWidth(120)
+
+	data := HeaderData{
+		Version:     "ralph v0.3.0",
+		Title:       "Feature Builder",
+		Total:       5,
+		Completed:   2,
+		TokenUsage:  "5.2k↓ 1.8k↑",
+		ElapsedTime: "5m30s",
+	}
+
+	result := h.Render(data)
+
+	if !strings.Contains(result, "5m30s") {
+		t.Error("should contain elapsed time when provided")
+	}
+}

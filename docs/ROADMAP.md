@@ -72,15 +72,15 @@ Inspired by [Recursive Language Models](https://arxiv.org/abs/2512.24601) resear
 - [x] Model escalation before retry
 - [x] Adjustment history tracking
 
-## v0.5.0 - Extended Orchestration
+## v0.5.0 - Extended Orchestration ✓
 
 ### Aggregated Metrics
-- [ ] Total token usage for entire PRD (header display)
-- [ ] Total cost aggregation across all features
-- [ ] Elapsed time per feature (start → complete)
-- [ ] Total elapsed time for PRD execution
+- [x] Total token usage for entire PRD (header display)
+- [x] Total cost aggregation across all features
+- [x] Elapsed time per feature (start → complete)
+- [x] Total elapsed time for PRD execution
 
-### Context & Memory
+### Deferred to Future
 - [ ] Context sharing between sibling instances
 - [ ] Memory of previous runs
 - [ ] Parallel subtask execution with result merging
