@@ -16,8 +16,8 @@ func TestAppVersionConstants(t *testing.T) {
 	if AppName != "RALPH" {
 		t.Errorf("Expected AppName to be 'RALPH', got '%s'", AppName)
 	}
-	if AppVersion != "v0.4.1" {
-		t.Errorf("Expected AppVersion to be 'v0.4.1', got '%s'", AppVersion)
+	if AppVersion != "v0.5.1" {
+		t.Errorf("Expected AppVersion to be 'v0.5.1', got '%s'", AppVersion)
 	}
 }
 

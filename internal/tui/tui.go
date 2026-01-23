@@ -204,6 +204,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.spawnHandler.SetFeatureRunning(msg.featureID)
 		}
 		m.state.UpdateFeature(msg.featureID, "running")
+		// Update manifest status in manifest mode
+		if m.manifestMode && m.manifest != nil {
+			_ = m.manifest.UpdateFeatureStatus(msg.featureID, "running")
+			_ = m.manifest.Save()
+		}
 		// Track initial model for auto model features
 		if msg.instance != nil && msg.instance.IsAutoModelEnabled() {
 			currentModel := msg.instance.GetCurrentModel()
@@ -340,6 +345,12 @@ func (m Model) handleInstanceDone(msg instanceDoneMsg) (tea.Model, tea.Cmd) {
 				m.handleChildFailure(msg.featureID, parentID, featureTitle, "")
 			}
 		}
+	}
+
+	// Update manifest status in manifest mode
+	if m.manifestMode && m.manifest != nil {
+		_ = m.manifest.UpdateFeatureStatus(msg.featureID, msg.status)
+		_ = m.manifest.Save()
 	}
 
 	// Handle child feature completion - generate result for parent
@@ -816,14 +827,30 @@ func (m Model) autoStartNext() (tea.Model, tea.Cmd) {
 		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{} })
 	}
 
-	for _, feature := range m.prd.Features {
-		fs := m.state.GetFeature(feature.ID)
-		if fs == nil || fs.Status == "pending" || fs.Status == "" {
-			m.setStatus(fmt.Sprintf("Starting %s...", feature.Title))
-			return m, tea.Batch(
-				startFeatureWithBudget(feature, m.prd.Context, m.workDir, m.manager),
-				tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{} }),
-			)
+	// In manifest mode, use dependency-aware feature selection
+	if m.manifestMode && m.manifest != nil {
+		nextFeature := m.manifest.GetNextRunnableFeature()
+		if nextFeature != nil {
+			feature := m.findFeature(nextFeature.ID)
+			if feature != nil {
+				m.setStatus(fmt.Sprintf("Starting %s...", feature.Title))
+				return m, tea.Batch(
+					startFeatureWithBudget(*feature, m.prd.Context, m.workDir, m.manager),
+					tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{} }),
+				)
+			}
+		}
+	} else {
+		// Legacy mode: iterate features without dependency checking
+		for _, feature := range m.prd.Features {
+			fs := m.state.GetFeature(feature.ID)
+			if fs == nil || fs.Status == "pending" || fs.Status == "" {
+				m.setStatus(fmt.Sprintf("Starting %s...", feature.Title))
+				return m, tea.Batch(
+					startFeatureWithBudget(feature, m.prd.Context, m.workDir, m.manager),
+					tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{} }),
+				)
+			}
 		}
 	}
 

@@ -4,7 +4,7 @@ import "github.com/charmbracelet/lipgloss"
 
 const (
 	AppName    = "RALPH"
-	AppVersion = "v0.4.1"
+	AppVersion = "v0.5.1"
 )
 
 var (
